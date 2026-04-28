@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Agenda del Bebé</title>
+  
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#ff6fa8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Agenda Bebé">
+  <meta name="description" content="Control de alimentación, pañales, sueño y crecimiento de tu bebé">
+  
+  <!-- Manifest -->
+  <link rel="manifest" href="manifest.json">
+  
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  
+  <style>
+    :root {
+      --bg: #ffeef4; --card: #fff; --texto: #2b2b2b; --muted: #666;
+      --borde: #f5cddd; --suave: #ffe0ec; --danger: #e15b64; --success: #4caf50;
+      --btn: #ff6fa8; --btn2: #bbb;
+      --pill-breast: #ffd3e9; --pill-lm: #cfe9ff; --pill-lf: #cfe9ff;
+      --pill-extr: #d7f7ff; --pill-pan: #d7f7d0; --pill-sleep: #eadcff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: var(--bg); color: var(--texto); font-family: system-ui, -apple-system, sans-serif; }
+    
+    /* Responsive container */
+    .app-container { max-width: 800px; margin: 0 auto; min-height: 100vh; padding: 12px; padding-bottom: 100px; }
+    @media (min-width: 768px) { .app-container { padding: 20px; padding-bottom: 40px; margin-left: 200px; } }
+    
+    /* Header */
+    .topbar { display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 8px; }
+    .brand { font-weight: 700; font-size: 18px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .spacer { flex: 1; }
+    
+    /* Buttons */
+    .btn, .btn-sec, .btn-danger, .btn-success { 
+      border: 0; border-radius: 10px; padding: 12px 16px; cursor: pointer; 
+      font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn { background: var(--btn); color: #fff; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-sec { background: var(--btn2); color: #222; }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-full { width: 100%; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    /* Cards */
+    .card { background: var(--card); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; margin-bottom: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .card h2, .card h3 { margin: 0 0 12px; font-size: 16px; }
+    .card h2 { font-size: 18px; }
+    
+    /* Forms */
+    label { display: block; font-size: 13px; margin: 8px 0 4px; color: var(--muted); }
+    input, select { 
+      width: 100%; border: 1px solid var(--borde); border-radius: 10px; 
+      padding: 12px; background: var(--card); color: var(--texto); font-size: 14px; 
+    }
+    input:focus, select:focus { outline: none; border-color: var(--btn); }
+    
+    /* Grid */
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 400px) { .row { grid-template-columns: 1fr; } }
+    
+    /* Utilities */
+    .muted { color: var(--muted); font-size: 12px; }
+    .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; background: var(--suave); color: var(--muted); }
+    .big { font-weight: 700; font-size: 24px; font-family: 'Courier New', monospace; }
+    .text-center { text-align: center; }
+    .mt-2 { margin-top: 16px; }
+    .mb-2 { margin-bottom: 16px; }
+    .error { color: var(--danger); font-size: 12px; margin-top: 8px; }
+    .success-msg { color: var(--success); font-size: 12px; margin-top: 8px; }
+    
+    /* Views */
+    .view { display: none; }
+    .view.active { display: block; }
+    
+    /* Auth screens */
+    .auth-container { max-width: 400px; margin: 0 auto; padding: 20px; padding-top: 40px; }
+    .auth-logo { font-size: 64px; text-align: center; margin-bottom: 20px; }
+    .auth-title { text-align: center; font-size: 24px; margin-bottom: 8px; }
+    .auth-subtitle { text-align: center; color: var(--muted); margin-bottom: 24px; }
+    
+    /* Timeline */
+    .timeline { border: 1px solid var(--borde); border-radius: 14px; overflow: hidden; background: var(--card); margin-top: 8px; }
+    .t-row { display: grid; grid-template-columns: 60px 1fr; align-items: center; min-height: 44px; border-bottom: 1px dashed var(--borde); }
+    .t-row:last-child { border-bottom: 0; }
+    .t-time { padding: 8px; font-size: 12px; font-weight: 700; background: linear-gradient(90deg, var(--suave), transparent); }
+    .t-events { padding: 4px 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .t-icon { 
+      width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--borde); 
+      display: inline-flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .t-icon.breast { background: var(--pill-breast); }
+    .t-icon.mix { background: var(--pill-lm); }
+    .t-icon.pump { background: var(--pill-extr); }
+    .t-icon.diaper { background: var(--pill-pan); }
+    .t-icon.sleep { background: var(--pill-sleep); }
+    
+    /* Timer boxes */
+    .timer-box { 
+      text-align: center; padding: 16px; border: 2px solid var(--borde); 
+      border-radius: 12px; transition: border-color 0.2s;
+    }
+    .timer-box.active { border-color: var(--btn); background: var(--suave); }
+    
+    /* Bottom nav - mobile */
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--borde); padding: 8px 0; z-index: 20; }
+    .bottom-nav-inner { display: flex; justify-content: space-around; max-width: 500px; margin: 0 auto; }
+    .nav-btn { 
+      display: flex; flex-direction: column; align-items: center; gap: 2px; 
+      padding: 6px 12px; background: none; border: 0; cursor: pointer; 
+      color: var(--muted); font-size: 10px; transition: color 0.2s;
+    }
+    .nav-btn.active { color: var(--btn); }
+    .nav-btn svg { width: 22px; height: 22px; }
+    
+    @media (min-width: 768px) {
+      .bottom-nav { display: none; }
+    }
+    
+    /* Side nav - desktop */
+    .side-nav { display: none; }
+    @media (min-width: 768px) {
+      .side-nav { display: block; position: fixed; left: 0; top: 0; bottom: 0; width: 200px; background: var(--card); border-right: 1px solid var(--borde); padding: 20px 10px; z-index: 10; overflow-y: auto; }
+      .side-nav .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; cursor: pointer; font-size: 14px; }
+      .side-nav .nav-item:hover, .side-nav .nav-item.active { background: var(--suave); }
+    }
+    
+    /* Theme variations */
+    .theme-violeta { --bg: #f3ecff; --borde: #d2c3ff; --suave: #e9ddff; --btn: #7f62ff; --btn2: #b5a9e7; --pill-breast: #e9d3ff; --pill-lm: #d2e1ff; --pill-lf: #d2e1ff; --pill-extr: #dfe9ff; --pill-pan: #e2ffd9; --pill-sleep: #cdb9ff; }
+    .theme-azul { --bg: #eaf6ff; --borde: #c9e7ff; --suave: #dff2ff; --texto: #243042; --btn: #1f8aff; --btn2: #89bff2; --pill-breast: #d9eaff; --pill-lm: #bfe3ff; --pill-lf: #bfe3ff; --pill-extr: #9fd0ff; --pill-pan: #daf6da; --pill-sleep: #d9e0ff; }
+    .theme-verde { --bg: #e8fff1; --borde: #c8f0db; --suave: #dcf7e8; --texto: #1f3225; --btn: #23c37a; --btn2: #94d9bd; --pill-breast: #dff7eb; --pill-lm: #c8f0ff; --pill-lf: #c8f0ff; --pill-extr: #c8f5ee; --pill-pan: #bdf2c1; --pill-sleep: #dbf0e2; }
+    .theme-cafe { --bg: #f4eee9; --borde: #e0d3c6; --suave: #efe6de; --texto: #2c231c; --btn: #9a6b45; --btn2: #cbb59f; --pill-breast: #eddcd0; --pill-lm: #d9e7f4; --pill-lf: #d9e7f4; --pill-extr: #e6efe9; --pill-pan: #e5efd9; --pill-sleep: #e6dcd0; }
+    .dark { --bg: #141318; --card: #1d1c22; --texto: #f1f1f3; --muted: #aaa; --borde: #2f2e36; --suave: #24232b; }
+    
+    /* Menu */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; z-index: 5; }
+    .overlay.open { display: block; }
+    .panel { position: fixed; top: 10px; right: 10px; background: var(--card); border: 1px solid var(--borde); border-radius: 14px; padding: 10px; min-width: 200px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: none; z-index: 10; }
+    .panel.open { display: block; }
+    .panel a { display: block; padding: 10px 12px; border-radius: 8px; color: var(--texto); text-decoration: none; font-size: 14px; cursor: pointer; }
+    .panel a:hover, .panel a.active { background: var(--suave); }
+    .panel h4 { margin: 6px 10px; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+    .menuBtn { border: 0; background: var(--suave); border-radius: 10px; padding: 8px 12px; cursor: pointer; font-size: 18px; }
+    
+    /* Swatches */
+    .swatches { display: flex; gap: 8px; padding: 8px 10px; }
+    .sw { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--borde); cursor: pointer; }
+    .sw.rosa { background: #ff6fa8; } .sw.violeta { background: #7f62ff; } .sw.azul { background: #1f8aff; }
+    .sw.verde { background: #23c37a; } .sw.cafe { background: #9a6b45; }
+    
+    /* Loading */
+    .loading { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .spinner { width: 40px; height: 40px; border: 4px solid var(--borde); border-top-color: var(--btn); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+    .tab { flex: 1; padding: 10px; border-radius: 10px; border: 0; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .tab.active { background: var(--btn); color: #fff; }
+    .tab:not(.active) { background: var(--suave); color: var(--texto); }
+    
+    /* Record list */
+    .record-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--borde); }
+    .record-item:last-child { border-bottom: 0; }
+    .record-item button { padding: 4px 8px; font-size: 11px; }
+    
+    /* Sync indicator */
+    .sync-indicator { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: var(--card); padding: 6px 12px; border-radius: 20px; font-size: 11px; color: var(--muted); box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 100; }
+    .sync-indicator.syncing { color: var(--btn); }
+    
+    /* Summary Grid */
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    @media (max-width: 400px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+    .summary-item { display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--suave); border-radius: 10px; }
+    .summary-icon { font-size: 20px; }
+    .summary-data { flex: 1; }
+    .summary-value { font-weight: 700; font-size: 16px; }
+    .summary-label { font-size: 10px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div class="loading" id="loadingScreen">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Sync Indicator -->
+  <div class="sync-indicator" id="syncIndicator" style="display: none;">
+    <span id="syncText">Sincronizado</span>
+  </div>
+
+  <!-- App Container -->
+  <div class="app-container" id="appContainer" style="display: none;">
+    
+    <!-- Side Nav (Desktop) -->
+    <nav class="side-nav" id="sideNav">
+      <div style="font-size: 28px; margin-bottom: 20px; text-align: center;">👶</div>
+      <div class="nav-item active" data-view="home">🏠 Inicio</div>
+      <div class="nav-item" data-view="feeding">🍼 Alimentar</div>
+      <div class="nav-item" data-view="diapers">👶 Pañales</div>
+      <div class="nav-item" data-view="sleep">😴 Sueño</div>
+      <div class="nav-item" data-view="growth">📏 Crecer</div>
+      <div class="nav-item" data-view="history">📅 Historial</div>
+      <hr style="margin: 10px 0; border: none; border-top: 1px solid var(--borde);">
+      <div class="nav-item" data-view="settings">⚙️ Ajustes</div>
+      <div class="nav-item" id="logoutBtnSide">🚪 Salir</div>
+    </nav>
+
+    <!-- Header -->
+    <header class="topbar">
+      <span style="font-size: 28px;">👶</span>
+      <span class="brand">Agenda del Bebé</span>
+      <span class="spacer"></span>
+      <button class="menuBtn" id="darkBtn">🌙</button>
+      <button class="menuBtn" id="menuBtn">☰</button>
+    </header>
+
+    <!-- Menu Overlay -->
+    <div class="overlay" id="overlay"></div>
+    
+    <!-- Menu Panel -->
+    <nav class="panel" id="panel">
+      <h4>Navegación</h4>
+      <a class="active" data-view="home">🏠 Inicio</a>
+      <a data-view="feeding">🍼 Alimentación</a>
+      <a data-view="diapers">👶 Pañales</a>
+      <a data-view="sleep">😴 Sueño</a>
+      <a data-view="growth">📏 Crecimiento</a>
+      <a data-view="history">📅 Historial</a>
+      <a data-view="settings">⚙️ Ajustes</a>
+      <h4>Temas</h4>
+      <div class="swatches">
+        <div class="sw rosa" data-theme="rosa" title="Rosa"></div>
+        <div class="sw violeta" data-theme="violeta" title="Violeta"></div>
+        <div class="sw azul" data-theme="azul" title="Azul"></div>
+        <div class="sw verde" data-theme="verde" title="Verde"></div>
+        <div class="sw cafe" data-theme="cafe" title="Café"></div>
+      </div>
+      <div style="padding: 8px 12px;">
+        <button class="btn-sec btn-full" id="darkBtn2">🌙 Modo oscuro</button>
+      </div>
+      <div style="padding: 0 12px 8px;">
+        <button class="btn-danger btn-full" id="logoutBtn">🚪 Cerrar sesión</button>
+      </div>
+    </nav>
+
+    <!-- Profile View -->
+    <section class="card view active" id="profileView">
+      <h2>👶 Perfil del bebé</h2>
+      <div class="row">
+        <div>
+          <label>Nombre</label>
+          <input type="text" id="babyName" placeholder="Nombre del bebé" />
+        </div>
+        <div>
+          <label>Sexo</label>
+          <select id="babySex">
+            <option value="niño">Niño 👦</option>
+            <option value="niña">Niña 👧</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Fecha de nacimiento</label>
+          <input type="date" id="babyBirth" />
+        </div>
+      </div>
+      <button class="btn btn-full mt-2" id="saveProfile">💾 Guardar perfil</button>
+    </section>
+
+    <!-- Home View -->
+    <div class="view" id="homeView"></div>
+
+    <!-- Feeding View -->
+    <div class="view" id="feedingView">
+      <section class="card">
+        <h2>🍼 Alimentación</h2>
+        <div class="tabs">
+          <button class="tab active" data-tab="breast">🍼 Pecho</button>
+          <button class="tab" data-tab="mix">🥛 Mixta</button>
+          <button class="tab" data-tab="pump">💧 Extracción</button>
+        </div>
+        
+        <div id="breastTab">
+          <h3>Temporizadores</h3>
+          <div class="row">
+            <div class="timer-box" id="leftTimer">
+              <div class="muted">Izquierdo</div>
+              <div class="big" id="leftTime">0:00</div>
+              <div class="mt-2" style="display: flex; gap: 4px; justify-content: center;">
+                <button class="btn" id="leftStart">▶ Iniciar</button>
+                <button class="btn-sec" id="leftClear">✕</button>
+              </div>
+            </div>
+            <div class="timer-box" id="rightTimer">
+              <div class="muted">Derecho</div>
+              <div class="big" id="rightTime">0:00</div>
+              <div class="mt-2" style="display: flex; gap: 4px; justify-content: center;">
+                <button class="btn" id="rightStart">▶ Iniciar</button>
+                <button class="btn-sec" id="rightClear">✕</button>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-full mt-2" id="saveBreast">💾 Guardar sesión</button>
+        </div>
+        
+        <div id="mixTab" style="display: none;">
+          <div class="row">
+            <div>
+              <label>Leche materna (oz)</label>
+              <input type="number" step="0.5" min="0" id="mixLm" placeholder="0.0" />
+            </div>
+            <div>
+              <label>Fórmula (oz)</label>
+              <input type="number" step="0.5" min="0" id="mixLf" placeholder="0.0" />
+            </div>
+          </div>
+          <button class="btn btn-full mt-2" id="saveMix">💾 Guardar</button>
+        </div>
+        
+        <div id="pumpTab" style="display: none;">
+          <div class="row">
+            <div>
+              <label>Izquierdo (oz)</label>
+              <input type="number" step="0.5" min="0" id="pumpL" placeholder="0.0" />
+            </div>
+            <div>
+              <label>Derecho (oz)</label>
+              <input type="number" step="0.5" min="0" id="pumpR" placeholder="0.0" />
+            </div>
+          </div>
+          <button class="btn btn-full mt-2" id="savePump">💾 Guardar</button>
+        </div>
+      </section>
+      
+      <section class="card">
+        <h3>Registros recientes</h3>
+        <div id="recentFeeding"></div>
+      </section>
+    </div>
+
+    <!-- Diapers View -->
+    <div class="view" id="diapersView">
+      <section class="card">
+        <h2>👶 Cambio de pañal</h2>
+        <div class="row">
+          <div>
+            <label>Tipo</label>
+            <select id="diaperType">
+              <option value="pipi">Pipí 💧</option>
+              <option value="caca">Popó 💩</option>
+              <option value="ambos">Ambos 💧💩</option>
+            </select>
+          </div>
+          <div>
+            <label>Peso (g) - opcional</label>
+            <input type="number" id="diaperWeight" placeholder="0" />
+          </div>
+        </div>
+        <div class="row mt-2">
+          <div>
+            <label>Fecha</label>
+            <input type="date" id="diaperDate" />
+          </div>
+          <div>
+            <label>Hora</label>
+            <input type="time" id="diaperTime" />
+          </div>
+        </div>
+        <button class="btn btn-full mt-2" id="saveDiaper">💾 Guardar</button>
+      </section>
+      <section class="card">
+        <h3>Registros recientes</h3>
+        <div id="recentDiapers"></div>
+      </section>
+    </div>
+
+    <!-- Sleep View -->
+    <div class="view" id="sleepView">
+      <section class="card">
+        <h2>😴 Control de sueño</h2>
+        <div class="timer-box" id="sleepTimer">
+          <div class="muted">Tiempo de sueño</div>
+          <div class="big" id="sleepTime">0:00</div>
+          <div class="mt-2">
+            <button class="btn" id="sleepStart">▶ Iniciar</button>
+            <button class="btn-danger" id="sleepStop" style="display: none;">⏹ Parar</button>
+          </div>
+        </div>
+      </section>
+      <section class="card">
+        <h3>Registrar sueño manualmente</h3>
+        <div class="row">
+          <div>
+            <label>Fecha inicio</label>
+            <input type="date" id="sleepDate" />
+          </div>
+          <div>
+            <label>Hora inicio</label>
+            <input type="time" id="sleepTimeStart" />
+          </div>
+        </div>
+        <div class="row mt-2">
+          <div>
+            <label>Fecha fin</label>
+            <input type="date" id="sleepDateEnd" />
+          </div>
+          <div>
+            <label>Hora fin</label>
+            <input type="time" id="sleepTimeEnd" />
+          </div>
+        </div>
+        <button class="btn btn-full mt-2" id="saveSleepManual">💾 Guardar manualmente</button>
+      </section>
+      <section class="card">
+        <h3>Registros recientes</h3>
+        <div id="recentSleep"></div>
+      </section>
+    </div>
+
+    <!-- Growth View -->
+    <div class="view" id="growthView">
+      <section class="card">
+        <h2>📏 Crecimiento</h2>
+        <div class="row">
+          <div>
+            <label>Peso (kg)</label>
+            <input type="number" step="0.1" id="growthWeight" placeholder="0.0" />
+          </div>
+          <div>
+            <label>Talla (cm)</label>
+            <input type="number" id="growthHeight" placeholder="0" />
+          </div>
+        </div>
+        <div class="row mt-2">
+          <div>
+            <label>Fecha</label>
+            <input type="date" id="growthDate" />
+          </div>
+          <div>
+            <label>Hora</label>
+            <input type="time" id="growthTime" />
+          </div>
+        </div>
+        <button class="btn btn-full mt-2" id="saveGrowth">💾 Guardar</button>
+      </section>
+      <section class="card">
+        <h3>Historial de crecimiento</h3>
+        <div id="growthHistory"></div>
+      </section>
+    </div>
+
+    <!-- History View -->
+    <div class="view" id="historyView">
+      <section class="card">
+        <h2>📅 Buscar por fecha</h2>
+        <div class="row">
+          <div>
+            <label>Seleccionar fecha</label>
+            <input type="date" id="historyDate" />
+          </div>
+          <div style="display: flex; align-items: flex-end;">
+            <button class="btn btn-full" id="searchHistory">🔍 Buscar</button>
+          </div>
+        </div>
+      </section>
+      <section class="card" id="historyResultsCard" style="display: none;">
+        <h3 id="historyDateTitle">Registros del día</h3>
+        <div id="historyResults"></div>
+      </section>
+      <section class="card">
+        <h3>📅 Línea de tiempo 24h</h3>
+        <div id="timeline"></div>
+      </section>
+    </div>
+
+    <!-- Settings View -->
+    <div class="view" id="settingsView">
+      <section class="card">
+        <h2>⚙️ Ajustes</h2>
+        <div class="record-item">
+          <span>📧 Correo electrónico</span>
+          <span class="muted" id="userEmail"></span>
+        </div>
+        <div class="record-item">
+          <span>🎨 Tema de colores</span>
+        </div>
+        <div class="swatches" style="justify-content: center;">
+          <div class="sw rosa" data-theme="rosa" title="Rosa"></div>
+          <div class="sw violeta" data-theme="violeta" title="Violeta"></div>
+          <div class="sw azul" data-theme="azul" title="Azul"></div>
+          <div class="sw verde" data-theme="verde" title="Verde"></div>
+          <div class="sw cafe" data-theme="cafe" title="Café"></div>
+        </div>
+        <button class="btn-sec btn-full mt-2" id="darkBtn3">🌙 Modo oscuro</button>
+        <button class="btn-danger btn-full mt-2" id="logoutBtn2">🚪 Cerrar sesión</button>
+      </section>
+      <section class="card">
+        <h2>📦 Datos</h2>
+        <p class="muted mb-2">Tus datos se guardan automáticamente en la nube y se sincronizan entre dispositivos.</p>
+        <button class="btn-danger btn-full" id="clearData">🗑 Borrar todos mis datos</button>
+      </section>
+    </div>
+
+    <footer style="text-align: center; padding: 20px 0; color: var(--muted); font-size: 12px;">
+      Creado por Javi Design
+    </footer>
+  </div>
+
+  <!-- Bottom Navigation (Mobile) -->
+  <nav class="bottom-nav" id="bottomNav" style="display: none;">
+    <div class="bottom-nav-inner">
+      <button class="nav-btn active" data-view="home">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L4 9v12h5v-7h6v7h5V9l-8-6z"/></svg>
+        <span>Inicio</span>
+      </button>
+      <button class="nav-btn" data-view="feeding">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+        <span>Comer</span>
+      </button>
+      <button class="nav-btn" data-view="diapers">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 4-3 8-4 11H8c-1-3-4-7-4-11z"/></svg>
+        <span>Pañal</span>
+      </button>
+      <button class="nav-btn" data-view="sleep">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-5 0-9 4-9 9s4 9 9 9c1 0 2-.7 2-1.5 0-.4-.2-.8-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H17c3 0 5-2 5-5 0-4-4-8-10-8z"/></svg>
+        <span>Dormir</span>
+      </button>
+      <button class="nav-btn" data-view="growth">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21V8l4-4 6 6 4-4 4 4v11H3z"/></svg>
+        <span>Crecer</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Auth Container -->
+  <div class="auth-container" id="authContainer" style="display: none;">
+    <div class="auth-logo">👶</div>
+    
+    <!-- Login Form -->
+    <div id="loginForm">
+      <h1 class="auth-title">Agenda del Bebé</h1>
+      <p class="auth-subtitle">Inicia sesión para continuar</p>
+      <div class="card">
+        <label>Correo electrónico</label>
+        <input type="email" id="loginEmail" placeholder="tu@correo.com" />
+        <label>Contraseña</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" />
+        <div class="error" id="loginError"></div>
+        <button class="btn btn-full mt-2" id="loginBtn">Entrar</button>
+        <p class="text-center mt-2">
+          <span class="muted">¿No tienes cuenta? </span>
+          <a href="#" id="showRegister" style="color: var(--btn);">Regístrate</a>
+        </p>
+        <p class="text-center mt-2">
+          <a href="#" id="showReset" style="color: var(--muted); font-size: 12px;">¿Olvidaste tu contraseña?</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Register Form -->
+    <div id="registerForm" style="display: none;">
+      <h1 class="auth-title">Crear cuenta</h1>
+      <p class="auth-subtitle">Registra tu cuenta gratuita</p>
+      <div class="card">
+        <label>Correo electrónico</label>
+        <input type="email" id="registerEmail" placeholder="tu@correo.com" />
+        <label>Contraseña (mínimo 6 caracteres)</label>
+        <input type="password" id="registerPassword" placeholder="••••••••" />
+        <label>Confirmar contraseña</label>
+        <input type="password" id="registerPasswordConfirm" placeholder="••••••••" />
+        <div class="error" id="registerError"></div>
+        <button class="btn btn-full mt-2" id="registerBtn">Crear cuenta</button>
+        <p class="text-center mt-2">
+          <span class="muted">¿Ya tienes cuenta? </span>
+          <a href="#" id="showLogin" style="color: var(--btn);">Inicia sesión</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Reset Password Form -->
+    <div id="resetForm" style="display: none;">
+      <h1 class="auth-title">Recuperar contraseña</h1>
+      <p class="auth-subtitle">Te enviaremos un enlace para restablecer tu contraseña</p>
+      <div class="card">
+        <label>Correo electrónico</label>
+        <input type="email" id="resetEmail" placeholder="tu@correo.com" />
+        <div class="error" id="resetError"></div>
+        <div class="success-msg" id="resetSuccess"></div>
+        <button class="btn btn-full mt-2" id="resetBtn">Enviar enlace</button>
+        <p class="text-center mt-2">
+          <a href="#" id="showLoginFromReset" style="color: var(--btn);">← Volver al login</a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

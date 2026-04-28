@@ -1,0 +1,11 @@
+{
+  "name": "agenda-bebe",
+  "version": "1.0.0",
+  "description": "Agenda del Bebé - Control de alimentación, pañales, sueño y crecimiento",
+  "scripts": {
+    "start": "npx serve ."
+  },
+  "keywords": ["baby", "tracker", "pwa"],
+  "author": "Javi Design",
+  "license": "MIT"
+}
