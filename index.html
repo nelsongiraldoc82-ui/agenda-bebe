@@ -112,13 +112,6 @@
     .t-icon.diaper { background: var(--pill-pan); }
     .t-icon.sleep { background: var(--pill-sleep); }
     
-    /* Timer boxes */
-    .timer-box { 
-      text-align: center; padding: 16px; border: 2px solid var(--borde); 
-      border-radius: 12px; transition: border-color 0.2s;
-    }
-    .timer-box.active { border-color: var(--btn); background: var(--suave); }
-    
     /* Bottom nav - mobile */
     .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--borde); padding: 8px 0; z-index: 20; }
     .bottom-nav-inner { display: flex; justify-content: space-around; max-width: 500px; margin: 0 auto; }
@@ -193,6 +186,11 @@
     .summary-data { flex: 1; }
     .summary-value { font-weight: 700; font-size: 16px; }
     .summary-label { font-size: 10px; color: var(--muted); }
+    
+    /* History tabs */
+    .history-tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+    .history-tab { padding: 8px 12px; border-radius: 20px; border: 0; cursor: pointer; font-size: 12px; font-weight: 500; background: var(--suave); color: var(--texto); }
+    .history-tab.active { background: var(--btn); color: #fff; }
   </style>
 </head>
 <body>
@@ -299,27 +297,17 @@
           <button class="tab" data-tab="pump">💧 Extracción</button>
         </div>
         
+        <!-- Pecho: Solo hora -->
         <div id="breastTab">
-          <h3>Temporizadores</h3>
           <div class="row">
-            <div class="timer-box" id="leftTimer">
-              <div class="muted">Izquierdo</div>
-              <div class="big" id="leftTime">0:00</div>
-              <div class="mt-2" style="display: flex; gap: 4px; justify-content: center;">
-                <button class="btn" id="leftStart">▶ Iniciar</button>
-                <button class="btn-sec" id="leftClear">✕</button>
-              </div>
+            <div>
+              <label>Hora de alimentación</label>
+              <input type="time" id="breastTime" />
             </div>
-            <div class="timer-box" id="rightTimer">
-              <div class="muted">Derecho</div>
-              <div class="big" id="rightTime">0:00</div>
-              <div class="mt-2" style="display: flex; gap: 4px; justify-content: center;">
-                <button class="btn" id="rightStart">▶ Iniciar</button>
-                <button class="btn-sec" id="rightClear">✕</button>
-              </div>
+            <div style="display: flex; align-items: flex-end;">
+              <button class="btn btn-full" id="saveBreast">💾 Guardar</button>
             </div>
           </div>
-          <button class="btn btn-full mt-2" id="saveBreast">💾 Guardar sesión</button>
         </div>
         
         <div id="mixTab" style="display: none;">
@@ -333,9 +321,16 @@
               <input type="number" step="0.5" min="0" id="mixLf" placeholder="0.0" />
             </div>
           </div>
+          <div class="row mt-2">
+            <div>
+              <label>Hora</label>
+              <input type="time" id="mixTime" />
+            </div>
+          </div>
           <button class="btn btn-full mt-2" id="saveMix">💾 Guardar</button>
         </div>
         
+        <!-- Extracción: Cantidad y hora -->
         <div id="pumpTab" style="display: none;">
           <div class="row">
             <div>
@@ -345,6 +340,12 @@
             <div>
               <label>Derecho (oz)</label>
               <input type="number" step="0.5" min="0" id="pumpR" placeholder="0.0" />
+            </div>
+          </div>
+          <div class="row mt-2">
+            <div>
+              <label>Hora de extracción</label>
+              <input type="time" id="pumpTime" />
             </div>
           </div>
           <button class="btn btn-full mt-2" id="savePump">💾 Guardar</button>
@@ -371,16 +372,6 @@
             </select>
           </div>
           <div>
-            <label>Peso (g) - opcional</label>
-            <input type="number" id="diaperWeight" placeholder="0" />
-          </div>
-        </div>
-        <div class="row mt-2">
-          <div>
-            <label>Fecha</label>
-            <input type="date" id="diaperDate" />
-          </div>
-          <div>
             <label>Hora</label>
             <input type="time" id="diaperTime" />
           </div>
@@ -393,21 +384,10 @@
       </section>
     </div>
 
-    <!-- Sleep View -->
+    <!-- Sleep View: Solo ingreso manual -->
     <div class="view" id="sleepView">
       <section class="card">
         <h2>😴 Control de sueño</h2>
-        <div class="timer-box" id="sleepTimer">
-          <div class="muted">Tiempo de sueño</div>
-          <div class="big" id="sleepTime">0:00</div>
-          <div class="mt-2">
-            <button class="btn" id="sleepStart">▶ Iniciar</button>
-            <button class="btn-danger" id="sleepStop" style="display: none;">⏹ Parar</button>
-          </div>
-        </div>
-      </section>
-      <section class="card">
-        <h3>Registrar sueño manualmente</h3>
         <div class="row">
           <div>
             <label>Fecha inicio</label>
@@ -428,7 +408,7 @@
             <input type="time" id="sleepTimeEnd" />
           </div>
         </div>
-        <button class="btn btn-full mt-2" id="saveSleepManual">💾 Guardar manualmente</button>
+        <button class="btn btn-full mt-2" id="saveSleepManual">💾 Guardar</button>
       </section>
       <section class="card">
         <h3>Registros recientes</h3>
@@ -468,7 +448,7 @@
       </section>
     </div>
 
-    <!-- History View -->
+    <!-- History View: Búsqueda + Historial mensual -->
     <div class="view" id="historyView">
       <section class="card">
         <h2>📅 Buscar por fecha</h2>
@@ -486,9 +466,16 @@
         <h3 id="historyDateTitle">Registros del día</h3>
         <div id="historyResults"></div>
       </section>
+      
+      <!-- Historial mensual por categoría -->
       <section class="card">
-        <h3>📅 Línea de tiempo 24h</h3>
-        <div id="timeline"></div>
+        <h3>📊 Historial del mes</h3>
+        <div class="history-tabs">
+          <button class="history-tab active" data-history="feeding">🍼 Alimentación</button>
+          <button class="history-tab" data-history="diapers">👶 Pañales</button>
+          <button class="history-tab" data-history="sleep">😴 Sueño</button>
+        </div>
+        <div id="monthlyHistoryContent"></div>
       </section>
     </div>
 

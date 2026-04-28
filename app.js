@@ -1,5 +1,5 @@
 // ============================================
-// FIREBASE CONFIGURATION - TU CONFIGURACIÓN
+// FIREBASE CONFIGURATION
 // ============================================
 const firebaseConfig = {
   apiKey: "AIzaSyCu92br-gwCNsAPta0OAcMpovTUUrr9lR8",
@@ -32,15 +32,6 @@ let state = {
   growth: []
 };
 
-// Timer state
-let timers = {
-  leftStart: null,
-  rightStart: null,
-  leftRunning: false,
-  rightRunning: false,
-  sleepStart: null
-};
-
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
@@ -48,7 +39,7 @@ const genId = () => Date.now() + '-' + Math.random().toString(36).slice(2, 9);
 const formatTime = (date) => new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 const formatDate = (date) => new Date(date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
 
-// Formato inteligente: muestra fecha y hora para registros recientes
+// Formato inteligente: muestra fecha y hora
 const formatDateTime = (ts) => {
   const date = new Date(ts);
   const now = new Date();
@@ -70,15 +61,6 @@ const formatDateTime = (ts) => {
   }
 };
 
-const formatTimer = (ms) => {
-  const sec = Math.floor(ms / 1000);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  const h = Math.floor(m / 60);
-  if (h > 0) return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
-};
-
 const getAge = (birth) => {
   if (!birth) return 0;
   const b = new Date(birth), n = new Date();
@@ -87,39 +69,13 @@ const getAge = (birth) => {
 
 const is24h = (ts) => Date.now() - new Date(ts).getTime() <= 24 * 3600000;
 
-// Semana actual: Lunes a Domingo
-const isCurrentWeek = (ts) => {
-  const date = new Date(ts);
-  const now = new Date();
-  const monday = new Date(now);
-  const dayOfWeek = now.getDay();
-  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  monday.setDate(now.getDate() - daysToMonday);
-  monday.setHours(0, 0, 0, 0);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
-  return date >= monday && date <= sunday;
-};
-
-// Mes actual: día 1 al último día del mes
+// Mes actual
 const isCurrentMonth = (ts) => {
   const date = new Date(ts);
   const now = new Date();
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   return date >= firstDay && date <= lastDay;
-};
-
-const getWeekRange = () => {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - daysToMonday);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return { monday, sunday };
 };
 
 const getMonthRange = () => {
@@ -183,11 +139,9 @@ const loadUserData = async (user) => {
   const uid = user.uid;
   
   try {
-    // Load profile
     const profileDoc = await db.collection('users').doc(uid).collection('profile').doc('baby').get();
     if (profileDoc.exists) state.profile = profileDoc.data();
 
-    // Load settings
     const themeDoc = await db.collection('users').doc(uid).collection('settings').doc('theme').get();
     if (themeDoc.exists) {
       state.theme = themeDoc.data().theme || 'rosa';
@@ -195,7 +149,6 @@ const loadUserData = async (user) => {
       applyTheme();
     }
 
-    // Load records
     const loadCollection = async (name) => {
       try {
         const snapshot = await db.collection('users').doc(uid).collection(name).orderBy('ts', 'desc').limit(100).get();
@@ -256,7 +209,6 @@ const updateUI = () => {
     renderRecentDiapers();
     renderRecentSleep();
     renderGrowthHistory();
-    renderTimeline();
   } else {
     showView('profile');
     const bottomNav = document.getElementById('bottomNav');
@@ -272,7 +224,7 @@ const renderHome = () => {
   const recentDiaper = state.diaper.filter(r => is24h(r.ts));
   const recentSleep = state.sleep.filter(r => is24h(r.ts || r.start));
   
-  const totalMin = recentBreast.reduce((s, r) => s + (r.left || 0) + (r.right || 0), 0);
+  const totalBreast = recentBreast.length;
   const totalOz = recentMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0);
   const totalPumpOz = recentPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
   const totalSleep = recentSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
@@ -305,8 +257,8 @@ const renderHome = () => {
       <h3>Resumen 24h</h3>
       <div class="row">
         <div style="text-align: center; padding: 10px; background: var(--suave); border-radius: 10px;">
-          <div class="big">${totalMin}</div>
-          <div class="muted">min pecho</div>
+          <div class="big">${totalBreast}</div>
+          <div class="muted">pechos</div>
         </div>
         <div style="text-align: center; padding: 10px; background: var(--suave); border-radius: 10px;">
           <div class="big">${(totalOz + totalPumpOz).toFixed(1)}</div>
@@ -323,10 +275,6 @@ const renderHome = () => {
       </div>
     </section>
     <section class="card">
-      <h3>📊 Resumen semanal</h3>
-      <div id="weeklySummary"></div>
-    </section>
-    <section class="card">
       <h3>📈 Resumen mensual</h3>
       <div id="monthlySummary"></div>
     </section>
@@ -337,82 +285,7 @@ const renderHome = () => {
   `;
   
   renderTimelineIn('homeTimeline');
-  renderWeeklySummary();
   renderMonthlySummary();
-};
-
-// ============================================
-// RESUMEN SEMANAL
-// ============================================
-const renderWeeklySummary = () => {
-  const container = document.getElementById('weeklySummary');
-  if (!container) return;
-  
-  const weekBreast = state.breast.filter(r => isCurrentWeek(r.ts));
-  const weekMix = state.mix.filter(r => isCurrentWeek(r.ts));
-  const weekPump = state.pump.filter(r => isCurrentWeek(r.ts));
-  const weekDiaper = state.diaper.filter(r => isCurrentWeek(r.ts));
-  const weekSleep = state.sleep.filter(r => isCurrentWeek(r.ts || r.start));
-  
-  const totalMin = weekBreast.reduce((s, r) => s + (r.left || 0) + (r.right || 0), 0);
-  const totalOz = weekMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0);
-  const totalPumpOz = weekPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
-  const totalSleep = weekSleep.reduce((s, r) => s + (r.min || 0), 0);
-  
-  const weekRange = getWeekRange();
-  const now = new Date();
-  const daysInWeek = Math.min(7, Math.ceil((now - weekRange.monday) / (24 * 3600000)) + 1);
-  const avgSleep = weekSleep.length > 0 ? totalSleep / daysInWeek : 0;
-  
-  const formatDateShort = (d) => `${d.getDate()}/${d.getMonth() + 1}`;
-  
-  container.innerHTML = `
-    <div class="muted text-center mb-2" style="font-size: 11px;">📅 ${formatDateShort(weekRange.monday)} - ${formatDateShort(weekRange.sunday)} (Lun-Dom)</div>
-    <div class="summary-grid">
-      <div class="summary-item">
-        <span class="summary-icon">🍼</span>
-        <div class="summary-data">
-          <div class="summary-value">${totalMin}</div>
-          <div class="summary-label">min pecho</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">🥛</span>
-        <div class="summary-data">
-          <div class="summary-value">${(totalOz + totalPumpOz).toFixed(1)}</div>
-          <div class="summary-label">oz total</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">💧</span>
-        <div class="summary-data">
-          <div class="summary-value">${totalPumpOz.toFixed(1)}</div>
-          <div class="summary-label">oz extraídas</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">👶</span>
-        <div class="summary-data">
-          <div class="summary-value">${weekDiaper.length}</div>
-          <div class="summary-label">pañales</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">😴</span>
-        <div class="summary-data">
-          <div class="summary-value">${(totalSleep / 60).toFixed(1)}h</div>
-          <div class="summary-label">dormido</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">📊</span>
-        <div class="summary-data">
-          <div class="summary-value">${(avgSleep / 60).toFixed(1)}h</div>
-          <div class="summary-label">promedio/día</div>
-        </div>
-      </div>
-    </div>
-  `;
 };
 
 // ============================================
@@ -429,7 +302,6 @@ const renderMonthlySummary = () => {
   const monthSleep = state.sleep.filter(r => isCurrentMonth(r.ts || r.start));
   const monthGrowth = state.growth.filter(r => isCurrentMonth(r.ts));
   
-  const totalMin = monthBreast.reduce((s, r) => s + (r.left || 0) + (r.right || 0), 0);
   const totalOz = monthMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0);
   const totalPumpOz = monthPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
   const totalSleep = monthSleep.reduce((s, r) => s + (r.min || 0), 0);
@@ -443,13 +315,13 @@ const renderMonthlySummary = () => {
   const lastHeight = monthGrowth.length > 0 ? monthGrowth[0].h : null;
   
   container.innerHTML = `
-    <div class="muted text-center mb-2" style="font-size: 11px;">📅 ${monthRange.monthName} ${monthRange.year} (día 1 - ${daysInMonth})</div>
+    <div class="muted text-center mb-2" style="font-size: 11px;">📅 ${monthRange.monthName} ${monthRange.year}</div>
     <div class="summary-grid">
       <div class="summary-item">
         <span class="summary-icon">🍼</span>
         <div class="summary-data">
-          <div class="summary-value">${Math.round(totalMin / 60)}h</div>
-          <div class="summary-label">pecho total</div>
+          <div class="summary-value">${monthBreast.length}</div>
+          <div class="summary-label">pechos</div>
         </div>
       </div>
       <div class="summary-item">
@@ -492,12 +364,15 @@ const renderMonthlySummary = () => {
   `;
 };
 
+// ============================================
+// TIMELINE (Solo en inicio)
+// ============================================
 const renderTimelineIn = (containerId) => {
   const container = document.getElementById(containerId);
   if (!container) return;
 
   const events = [];
-  state.breast.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'breast', ts: r.ts, title: `Pecho ${r.left}+${r.right} min` }));
+  state.breast.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'breast', ts: r.ts, title: `Pecho` }));
   state.mix.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'mix', ts: r.ts, title: `Mixta ${r.lm}+${r.lf} oz` }));
   state.pump.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'pump', ts: r.ts, title: `Extracción ${r.l}+${r.r} oz` }));
   state.diaper.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'diaper', ts: r.ts, title: `Pañal ${r.type}` }));
@@ -537,25 +412,24 @@ const renderTimelineIn = (containerId) => {
   container.innerHTML = html;
 };
 
-const renderTimeline = () => renderTimelineIn('timeline');
-
+// ============================================
+// REGISTROS RECIENTES
+// ============================================
 const renderRecentFeeding = () => {
   const container = document.getElementById('recentFeeding');
   if (!container) return;
   
-  // Combinar todos los registros de alimentación con su tipo
   const allRecords = [];
   state.breast.forEach(r => allRecords.push({ ...r, type: 'breast', sortTs: r.ts }));
   state.mix.forEach(r => allRecords.push({ ...r, type: 'mix', sortTs: r.ts }));
   state.pump.forEach(r => allRecords.push({ ...r, type: 'pump', sortTs: r.ts }));
   
-  // Ordenar del más reciente al más antiguo
   allRecords.sort((a, b) => new Date(b.sortTs) - new Date(a.sortTs));
   
   let html = '';
   allRecords.slice(0, 10).forEach(r => {
     if (r.type === 'breast') {
-      html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho: ${r.left}m izq + ${r.right}m der</span><button class="btn-danger" onclick="delRecord('breast', '${r.id}')">🗑</button></div>`;
+      html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho</span><button class="btn-danger" onclick="delRecord('breast', '${r.id}')">🗑</button></div>`;
     } else if (r.type === 'mix') {
       html += `<div class="record-item"><span>🥛 ${formatDateTime(r.ts)} — Mixta: ${r.lm}oz LM + ${r.lf}oz fórmula</span><button class="btn-danger" onclick="delRecord('mix', '${r.id}')">🗑</button></div>`;
     } else if (r.type === 'pump') {
@@ -569,13 +443,12 @@ const renderRecentDiapers = () => {
   const container = document.getElementById('recentDiapers');
   if (!container) return;
   
-  // Ordenar del más reciente al más antiguo
   const sorted = [...state.diaper].sort((a, b) => new Date(b.ts) - new Date(a.ts));
   
   let html = '';
-  sorted.slice(0, 5).forEach(r => {
+  sorted.slice(0, 10).forEach(r => {
     const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
-    html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — Pañal ${r.type}${r.weight ? ` (${r.weight}g)` : ''}</span><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
+    html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — Pañal ${r.type}</span><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
   });
   container.innerHTML = html || '<p class="muted text-center">No hay registros</p>';
 };
@@ -584,11 +457,10 @@ const renderRecentSleep = () => {
   const container = document.getElementById('recentSleep');
   if (!container) return;
   
-  // Ordenar del más reciente al más antiguo
   const sorted = [...state.sleep].sort((a, b) => new Date(b.ts || b.start) - new Date(a.ts || a.start));
   
   let html = '';
-  sorted.slice(0, 5).forEach(r => {
+  sorted.slice(0, 10).forEach(r => {
     const hours = Math.floor(r.min / 60);
     const mins = r.min % 60;
     const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
@@ -601,7 +473,6 @@ const renderGrowthHistory = () => {
   const container = document.getElementById('growthHistory');
   if (!container) return;
   
-  // Ordenar del más reciente al más antiguo
   const sorted = [...state.growth].sort((a, b) => new Date(b.ts) - new Date(a.ts));
   
   let html = '';
@@ -610,6 +481,63 @@ const renderGrowthHistory = () => {
     html += `<div class="record-item"><span>📏 ${dateStr} — Peso: ${r.w}kg, Talla: ${r.h}cm</span><button class="btn-danger" onclick="delRecord('growth', '${r.id}')">🗑</button></div>`;
   });
   container.innerHTML = html || '<p class="muted text-center">No hay registros</p>';
+};
+
+// ============================================
+// HISTORIAL MENSUAL
+// ============================================
+let currentHistoryTab = 'feeding';
+
+const renderMonthlyHistory = () => {
+  const container = document.getElementById('monthlyHistoryContent');
+  if (!container) return;
+  
+  const monthBreast = state.breast.filter(r => isCurrentMonth(r.ts));
+  const monthMix = state.mix.filter(r => isCurrentMonth(r.ts));
+  const monthPump = state.pump.filter(r => isCurrentMonth(r.ts));
+  const monthDiaper = state.diaper.filter(r => isCurrentMonth(r.ts));
+  const monthSleep = state.sleep.filter(r => isCurrentMonth(r.ts || r.start));
+  
+  let html = '';
+  
+  if (currentHistoryTab === 'feeding') {
+    // Combinar todos los de alimentación
+    const allFeeding = [];
+    monthBreast.forEach(r => allFeeding.push({ ...r, type: 'breast', sortTs: r.ts }));
+    monthMix.forEach(r => allFeeding.push({ ...r, type: 'mix', sortTs: r.ts }));
+    monthPump.forEach(r => allFeeding.push({ ...r, type: 'pump', sortTs: r.ts }));
+    allFeeding.sort((a, b) => new Date(b.sortTs) - new Date(a.sortTs));
+    
+    html = `<div class="muted mb-2">Total: ${allFeeding.length} registros</div>`;
+    allFeeding.forEach(r => {
+      if (r.type === 'breast') {
+        html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho</span><button class="btn-danger" onclick="delRecord('breast', '${r.id}')">🗑</button></div>`;
+      } else if (r.type === 'mix') {
+        html += `<div class="record-item"><span>🥛 ${formatDateTime(r.ts)} — Mixta: ${r.lm}oz LM + ${r.lf}oz fórmula</span><button class="btn-danger" onclick="delRecord('mix', '${r.id}')">🗑</button></div>`;
+      } else if (r.type === 'pump') {
+        html += `<div class="record-item"><span>💧 ${formatDateTime(r.ts)} — Extracción: ${r.l}oz + ${r.r}oz</span><button class="btn-danger" onclick="delRecord('pump', '${r.id}')">🗑</button></div>`;
+      }
+    });
+  } else if (currentHistoryTab === 'diapers') {
+    const sorted = [...monthDiaper].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    html = `<div class="muted mb-2">Total: ${sorted.length} pañales</div>`;
+    sorted.forEach(r => {
+      const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
+      html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — ${r.type}</span><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
+    });
+  } else if (currentHistoryTab === 'sleep') {
+    const sorted = [...monthSleep].sort((a, b) => new Date(b.ts || b.start) - new Date(a.ts || a.start));
+    const totalHours = sorted.reduce((s, r) => s + (r.min || 0), 0) / 60;
+    html = `<div class="muted mb-2">Total: ${totalHours.toFixed(1)} horas (${sorted.length} registros)</div>`;
+    sorted.forEach(r => {
+      const hours = Math.floor(r.min / 60);
+      const mins = r.min % 60;
+      const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
+      html += `<div class="record-item"><span>😴 ${formatDateTime(r.ts || r.start)} — ${duration}</span><button class="btn-danger" onclick="delRecord('sleep', '${r.id}')">🗑</button></div>`;
+    });
+  }
+  
+  container.innerHTML = html || '<p class="muted text-center">No hay registros este mes</p>';
 };
 
 // ============================================
@@ -629,7 +557,7 @@ const showView = (view) => {
   if (overlay) overlay.classList.remove('open');
 
   if (view === 'home') renderHome();
-  if (view === 'history') renderTimeline();
+  if (view === 'history') renderMonthlyHistory();
 };
 
 window.showView = showView;
@@ -644,11 +572,18 @@ window.editProfile = () => {
   if (bottomNav) bottomNav.style.display = 'none';
 };
 
-// Helper para obtener fecha/hora de inputs
+// Helper para obtener fecha/hora
 const getDateTime = (dateId, timeId) => {
   const date = document.getElementById(dateId)?.value || new Date().toISOString().slice(0, 10);
   const time = document.getElementById(timeId)?.value || new Date().toTimeString().slice(0, 5);
   return new Date(`${date}T${time}`).toISOString();
+};
+
+// Obtener timestamp de hoy + hora
+const getTodayWithTime = (timeId) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const time = document.getElementById(timeId)?.value || new Date().toTimeString().slice(0, 5);
+  return new Date(`${today}T${time}`).toISOString();
 };
 
 // Delete record
@@ -657,6 +592,10 @@ window.delRecord = async (collection, id) => {
   state[collection] = state[collection].filter(r => r.id !== id);
   await deleteRecordFromDB(collection, id);
   updateUI();
+  renderRecentFeeding();
+  renderRecentDiapers();
+  renderRecentSleep();
+  renderMonthlyHistory();
 };
 
 // ============================================
@@ -685,16 +624,16 @@ document.addEventListener('DOMContentLoaded', () => {
       applyTheme();
       updateUI();
       
-      // Initialize date/time inputs
+      // Initialize time inputs
       const now = new Date();
-      const today = now.toISOString().slice(0, 10);
       const currentTime = now.toTimeString().slice(0, 5);
+      const today = now.toISOString().slice(0, 10);
       
-      const dateInputs = ['sleepDate', 'sleepDateEnd', 'diaperDate', 'growthDate'];
-      const timeInputs = ['sleepTimeStart', 'sleepTimeEnd', 'diaperTime', 'growthTime'];
-      
-      dateInputs.forEach(id => { const el = document.getElementById(id); if (el) el.value = today; });
+      const timeInputs = ['breastTime', 'mixTime', 'pumpTime', 'diaperTime', 'sleepTimeStart', 'sleepTimeEnd', 'growthTime'];
       timeInputs.forEach(id => { const el = document.getElementById(id); if (el) el.value = currentTime; });
+      
+      const dateInputs = ['sleepDate', 'sleepDateEnd', 'growthDate'];
+      dateInputs.forEach(id => { const el = document.getElementById(id); if (el) el.value = today; });
     } else {
       currentUser = null;
       state = { profile: null, theme: 'rosa', dark: false, breast: [], mix: [], pump: [], diaper: [], sleep: [], growth: [] };
@@ -841,6 +780,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // History tabs
+  document.querySelectorAll('.history-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.history-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentHistoryTab = tab.dataset.history;
+      renderMonthlyHistory();
+    });
+  });
+
   // Profile
   document.getElementById('saveProfile')?.addEventListener('click', async () => {
     const name = document.getElementById('babyName').value.trim();
@@ -864,186 +813,79 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Breastfeeding timers
-  const updateLeftTimer = () => {
-    if (timers.leftStart && timers.leftRunning) {
-      const elapsed = Date.now() - timers.leftStart.getTime();
-      document.getElementById('leftTime').textContent = formatTimer(elapsed);
-    }
-  };
-  
-  const updateRightTimer = () => {
-    if (timers.rightStart && timers.rightRunning) {
-      const elapsed = Date.now() - timers.rightStart.getTime();
-      document.getElementById('rightTime').textContent = formatTimer(elapsed);
-    }
-  };
-  
-  const updateSleepTimer = () => {
-    if (timers.sleepStart) {
-      const elapsed = Date.now() - timers.sleepStart.getTime();
-      document.getElementById('sleepTime').textContent = formatTimer(elapsed);
-    }
-  };
-  
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      updateLeftTimer();
-      updateRightTimer();
-      updateSleepTimer();
-    }
-  });
-  
-  setInterval(() => {
-    updateLeftTimer();
-    updateRightTimer();
-    updateSleepTimer();
-  }, 1000);
-  
-  document.getElementById('leftStart')?.addEventListener('click', () => {
-    if (!timers.leftRunning) {
-      timers.leftStart = timers.leftStart || new Date();
-      timers.leftRunning = true;
-      document.getElementById('leftStart').textContent = '⏸ Parar';
-      document.getElementById('leftTimer')?.classList.add('active');
-    } else {
-      timers.leftRunning = false;
-      document.getElementById('leftStart').textContent = '▶ Iniciar';
-      document.getElementById('leftTimer')?.classList.remove('active');
-    }
-  });
-
-  document.getElementById('leftClear')?.addEventListener('click', () => {
-    timers.leftStart = null;
-    timers.leftRunning = false;
-    document.getElementById('leftTime').textContent = '0:00';
-    document.getElementById('leftStart').textContent = '▶ Iniciar';
-    document.getElementById('leftTimer')?.classList.remove('active');
-  });
-
-  document.getElementById('rightStart')?.addEventListener('click', () => {
-    if (!timers.rightRunning) {
-      timers.rightStart = timers.rightStart || new Date();
-      timers.rightRunning = true;
-      document.getElementById('rightStart').textContent = '⏸ Parar';
-      document.getElementById('rightTimer')?.classList.add('active');
-    } else {
-      timers.rightRunning = false;
-      document.getElementById('rightStart').textContent = '▶ Iniciar';
-      document.getElementById('rightTimer')?.classList.remove('active');
-    }
-  });
-
-  document.getElementById('rightClear')?.addEventListener('click', () => {
-    timers.rightStart = null;
-    timers.rightRunning = false;
-    document.getElementById('rightTime').textContent = '0:00';
-    document.getElementById('rightStart').textContent = '▶ Iniciar';
-    document.getElementById('rightTimer')?.classList.remove('active');
-  });
-
+  // ============================================
+  // Pecho: Solo hora
+  // ============================================
   document.getElementById('saveBreast')?.addEventListener('click', async () => {
-    let leftMin = 0, rightMin = 0;
-    if (timers.leftStart) {
-      leftMin = Math.round((Date.now() - timers.leftStart.getTime()) / 60000);
-    }
-    if (timers.rightStart) {
-      rightMin = Math.round((Date.now() - timers.rightStart.getTime()) / 60000);
-    }
-    if (leftMin > 0 || rightMin > 0) {
-      const record = { id: genId(), ts: new Date().toISOString(), left: leftMin, right: rightMin };
-      state.breast.unshift(record);
-      await saveRecord('breast', record);
-      timers.leftStart = null;
-      timers.rightStart = null;
-      timers.leftRunning = false;
-      timers.rightRunning = false;
-      document.getElementById('leftTime').textContent = '0:00';
-      document.getElementById('rightTime').textContent = '0:00';
-      document.getElementById('leftStart').textContent = '▶ Iniciar';
-      document.getElementById('rightStart').textContent = '▶ Iniciar';
-      document.getElementById('leftTimer')?.classList.remove('active');
-      document.getElementById('rightTimer')?.classList.remove('active');
-      renderRecentFeeding();
-      renderTimeline();
-    }
+    const ts = getTodayWithTime('breastTime');
+    const record = { id: genId(), ts };
+    state.breast.unshift(record);
+    await saveRecord('breast', record);
+    renderRecentFeeding();
+    renderTimelineIn('homeTimeline');
+    // Reset time to now
+    document.getElementById('breastTime').value = new Date().toTimeString().slice(0, 5);
   });
 
-  // Mix feeding
+  // ============================================
+  // Mix feeding: Cantidades + hora
+  // ============================================
   document.getElementById('saveMix')?.addEventListener('click', async () => {
     const lm = parseFloat(document.getElementById('mixLm').value) || 0;
     const lf = parseFloat(document.getElementById('mixLf').value) || 0;
-    if (lm > 0 || lf > 0) {
-      const record = { id: genId(), ts: new Date().toISOString(), lm, lf };
-      state.mix.unshift(record);
-      await saveRecord('mix', record);
-      document.getElementById('mixLm').value = '';
-      document.getElementById('mixLf').value = '';
-      renderRecentFeeding();
-      renderTimeline();
+    if (lm === 0 && lf === 0) {
+      alert('Ingresa al menos una cantidad');
+      return;
     }
+    const ts = getTodayWithTime('mixTime');
+    const record = { id: genId(), ts, lm, lf };
+    state.mix.unshift(record);
+    await saveRecord('mix', record);
+    document.getElementById('mixLm').value = '';
+    document.getElementById('mixLf').value = '';
+    document.getElementById('mixTime').value = new Date().toTimeString().slice(0, 5);
+    renderRecentFeeding();
+    renderTimelineIn('homeTimeline');
   });
 
-  // Pump
+  // ============================================
+  // Extracción: Cantidad + hora
+  // ============================================
   document.getElementById('savePump')?.addEventListener('click', async () => {
     const l = parseFloat(document.getElementById('pumpL').value) || 0;
     const r = parseFloat(document.getElementById('pumpR').value) || 0;
-    if (l > 0 || r > 0) {
-      const record = { id: genId(), ts: new Date().toISOString(), l, r };
-      state.pump.unshift(record);
-      await saveRecord('pump', record);
-      document.getElementById('pumpL').value = '';
-      document.getElementById('pumpR').value = '';
-      renderRecentFeeding();
-      renderTimeline();
+    if (l === 0 && r === 0) {
+      alert('Ingresa al menos una cantidad');
+      return;
     }
+    const ts = getTodayWithTime('pumpTime');
+    const record = { id: genId(), ts, l, r };
+    state.pump.unshift(record);
+    await saveRecord('pump', record);
+    document.getElementById('pumpL').value = '';
+    document.getElementById('pumpR').value = '';
+    document.getElementById('pumpTime').value = new Date().toTimeString().slice(0, 5);
+    renderRecentFeeding();
+    renderTimelineIn('homeTimeline');
   });
 
-  // Diapers
+  // ============================================
+  // Pañal: Solo hora (fecha por defecto hoy)
+  // ============================================
   document.getElementById('saveDiaper')?.addEventListener('click', async () => {
     const type = document.getElementById('diaperType').value;
-    const weight = parseFloat(document.getElementById('diaperWeight').value) || 0;
-    const ts = getDateTime('diaperDate', 'diaperTime');
-    const record = { id: genId(), ts, type, weight };
+    const ts = getTodayWithTime('diaperTime');
+    const record = { id: genId(), ts, type };
     state.diaper.unshift(record);
     await saveRecord('diaper', record);
-    document.getElementById('diaperWeight').value = '';
+    document.getElementById('diaperTime').value = new Date().toTimeString().slice(0, 5);
     renderRecentDiapers();
-    renderTimeline();
+    renderTimelineIn('homeTimeline');
   });
 
-  // Sleep timer
-  document.getElementById('sleepStart')?.addEventListener('click', () => {
-    timers.sleepStart = new Date();
-    document.getElementById('sleepStart').style.display = 'none';
-    document.getElementById('sleepStop').style.display = 'inline-block';
-    document.getElementById('sleepTimer')?.classList.add('active');
-  });
-
-  document.getElementById('sleepStop')?.addEventListener('click', async () => {
-    if (timers.sleepStart) {
-      const end = new Date();
-      const min = Math.round((end - timers.sleepStart) / 60000);
-      const record = { 
-        id: genId(), 
-        ts: timers.sleepStart.toISOString(),
-        start: timers.sleepStart.toISOString(), 
-        end: end.toISOString(), 
-        min 
-      };
-      state.sleep.unshift(record);
-      await saveRecord('sleep', record);
-      timers.sleepStart = null;
-      document.getElementById('sleepTime').textContent = '0:00';
-      document.getElementById('sleepStart').style.display = 'inline-block';
-      document.getElementById('sleepStop').style.display = 'none';
-      document.getElementById('sleepTimer')?.classList.remove('active');
-      renderRecentSleep();
-      renderTimeline();
-    }
-  });
-
-  // Manual sleep
+  // ============================================
+  // Sueño: Solo manual (sin timer)
+  // ============================================
   document.getElementById('saveSleepManual')?.addEventListener('click', async () => {
     const startDate = document.getElementById('sleepDate').value;
     const startTime = document.getElementById('sleepTimeStart').value;
@@ -1051,44 +893,51 @@ document.addEventListener('DOMContentLoaded', () => {
     const endTime = document.getElementById('sleepTimeEnd').value;
     
     if (!startDate || !startTime || !endDate || !endTime) {
-      alert('Por favor completa todos los campos');
+      alert('Completa todos los campos');
       return;
     }
     
     const start = new Date(`${startDate}T${startTime}`);
     const end = new Date(`${endDate}T${endTime}`);
-    const min = Math.round((end - start) / 60000);
     
-    if (min <= 0) {
-      alert('La hora de fin debe ser posterior a la de inicio');
+    if (end <= start) {
+      alert('La hora de fin debe ser mayor que la de inicio');
       return;
     }
     
+    const min = Math.round((end - start) / 60000);
     const record = { 
       id: genId(), 
       ts: start.toISOString(),
-      start: start.toISOString(), 
-      end: end.toISOString(), 
+      start: start.toISOString(),
+      end: end.toISOString(),
       min 
     };
     state.sleep.unshift(record);
     await saveRecord('sleep', record);
+    
+    // Reset
+    const now = new Date();
+    document.getElementById('sleepDate').value = now.toISOString().slice(0, 10);
+    document.getElementById('sleepDateEnd').value = now.toISOString().slice(0, 10);
+    document.getElementById('sleepTimeStart').value = now.toTimeString().slice(0, 5);
+    document.getElementById('sleepTimeEnd').value = now.toTimeString().slice(0, 5);
+    
     renderRecentSleep();
-    renderTimeline();
-    alert('Sueño registrado correctamente');
+    renderTimelineIn('homeTimeline');
   });
 
-  // Growth
+  // ============================================
+  // Crecimiento
+  // ============================================
   document.getElementById('saveGrowth')?.addEventListener('click', async () => {
-    const w = parseFloat(document.getElementById('growthWeight').value);
-    const h = parseFloat(document.getElementById('growthHeight').value);
-    const ts = getDateTime('growthDate', 'growthTime');
-    
-    if (!w || !h) {
-      alert('Por favor ingresa peso y talla');
+    const w = parseFloat(document.getElementById('growthWeight').value) || 0;
+    const h = parseFloat(document.getElementById('growthHeight').value) || 0;
+    if (w === 0 || h === 0) {
+      alert('Ingresa peso y talla');
       return;
     }
-    
+    const ts = getDateTime('growthDate', 'growthTime');
     const record = { id: genId(), ts, w, h };
     state.growth.unshift(record);
     await saveRecord('growth', record);
@@ -1097,74 +946,103 @@ document.addEventListener('DOMContentLoaded', () => {
     renderGrowthHistory();
   });
 
-  // History search
+  // ============================================
+  // Historial: Búsqueda por fecha
+  // ============================================
   document.getElementById('searchHistory')?.addEventListener('click', () => {
-    const date = document.getElementById('historyDate').value;
-    if (!date) return;
+    const searchDate = document.getElementById('historyDate').value;
+    if (!searchDate) {
+      alert('Selecciona una fecha');
+      return;
+    }
     
-    const targetDate = new Date(date);
-    const dayStart = new Date(targetDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(targetDate);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dateStart = new Date(searchDate + 'T00:00:00');
+    const dateEnd = new Date(searchDate + 'T23:59:59');
     
-    const isOnDay = (ts) => {
+    const isSameDay = (ts) => {
       const d = new Date(ts);
-      return d >= dayStart && d <= dayEnd;
+      return d >= dateStart && d <= dateEnd;
     };
     
-    let html = '';
+    const results = [];
     
-    state.breast.filter(r => isOnDay(r.ts)).forEach(r => {
-      html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho ${r.left}+${r.right} min</span></div>`;
-    });
-    state.mix.filter(r => isOnDay(r.ts)).forEach(r => {
-      html += `<div class="record-item"><span>🥛 ${formatDateTime(r.ts)} — Mixta ${r.lm}+${r.lf} oz</span></div>`;
-    });
-    state.pump.filter(r => isOnDay(r.ts)).forEach(r => {
-      html += `<div class="record-item"><span>💧 ${formatDateTime(r.ts)} — Extracción ${r.l}+${r.r} oz</span></div>`;
-    });
-    state.diaper.filter(r => isOnDay(r.ts)).forEach(r => {
-      html += `<div class="record-item"><span>👶 ${formatDateTime(r.ts)} — Pañal ${r.type}</span></div>`;
-    });
-    state.sleep.filter(r => isOnDay(r.ts || r.start)).forEach(r => {
-      html += `<div class="record-item"><span>😴 ${formatDateTime(r.start || r.ts)} — Sueño ${r.min} min</span></div>`;
-    });
-    state.growth.filter(r => isOnDay(r.ts)).forEach(r => {
-      html += `<div class="record-item"><span>📏 ${formatDateTime(r.ts)} — ${r.w}kg, ${r.h}cm</span></div>`;
-    });
+    state.breast.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'breast' }));
+    state.mix.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'mix' }));
+    state.pump.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'pump' }));
+    state.diaper.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'diaper' }));
+    state.sleep.filter(r => isSameDay(r.ts || r.start)).forEach(r => results.push({ ...r, type: 'sleep' }));
+    state.growth.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'growth' }));
     
-    document.getElementById('historyDateTitle').textContent = `Registros del ${formatDate(date)}`;
-    document.getElementById('historyResults').innerHTML = html || '<p class="muted text-center">No hay registros</p>';
-    document.getElementById('historyResultsCard').style.display = 'block';
+    results.sort((a, b) => new Date(b.ts || b.start) - new Date(a.ts || a.start));
+    
+    const card = document.getElementById('historyResultsCard');
+    const title = document.getElementById('historyDateTitle');
+    const container = document.getElementById('historyResults');
+    
+    const formattedDate = new Date(searchDate).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+    title.textContent = `Registros del ${formattedDate}`;
+    
+    if (results.length === 0) {
+      container.innerHTML = '<p class="muted text-center">No hay registros para esta fecha</p>';
+    } else {
+      let html = '';
+      results.forEach(r => {
+        if (r.type === 'breast') {
+          html += `<div class="record-item"><span>🍼 ${formatTime(r.ts)} — Pecho</span></div>`;
+        } else if (r.type === 'mix') {
+          html += `<div class="record-item"><span>🥛 ${formatTime(r.ts)} — Mixta: ${r.lm}oz + ${r.lf}oz</span></div>`;
+        } else if (r.type === 'pump') {
+          html += `<div class="record-item"><span>💧 ${formatTime(r.ts)} — Extracción: ${r.l}oz + ${r.r}oz</span></div>`;
+        } else if (r.type === 'diaper') {
+          const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
+          html += `<div class="record-item"><span>${icon} ${formatTime(r.ts)} — Pañal ${r.type}</span></div>`;
+        } else if (r.type === 'sleep') {
+          const hours = Math.floor(r.min / 60);
+          const mins = r.min % 60;
+          const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
+          html += `<div class="record-item"><span>😴 ${formatTime(r.ts)} — Sueño: ${duration}</span></div>`;
+        } else if (r.type === 'growth') {
+          html += `<div class="record-item"><span>📏 ${formatTime(r.ts)} — ${r.w}kg, ${r.h}cm</span></div>`;
+        }
+      });
+      container.innerHTML = html;
+    }
+    
+    card.style.display = 'block';
   });
 
-  // Clear data
+  // ============================================
+  // Borrar datos
+  // ============================================
   document.getElementById('clearData')?.addEventListener('click', async () => {
-    if (!confirm('¿Estás seguro de que quieres borrar TODOS tus datos? Esta acción no se puede deshacer.')) return;
-    if (!confirm('¿Seguro? Se eliminarán todos los registros de alimentación, pañales, sueño y crecimiento.')) return;
+    if (!confirm('¿Estás seguro? Se borrarán TODOS tus datos. Esta acción no se puede deshacer.')) return;
+    if (!confirm('¿REALMENTE quieres borrar todo?')) return;
     
-    showSync(true);
     try {
-      const collections = ['breast', 'mix', 'pump', 'diaper', 'sleep', 'growth'];
+      showSync(true);
+      const collections = ['breast', 'mix', 'pump', 'diaper', 'sleep', 'growth', 'profile'];
+      
       for (const col of collections) {
         const snapshot = await db.collection('users').doc(currentUser.uid).collection(col).get();
-        for (const doc of snapshot.docs) {
-          await doc.ref.delete();
-        }
+        const batch = db.batch();
+        snapshot.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
       }
-      state = { ...state, breast: [], mix: [], pump: [], diaper: [], sleep: [], growth: [] };
+      
+      state = { profile: null, theme: state.theme, dark: state.dark, breast: [], mix: [], pump: [], diaper: [], sleep: [], growth: [] };
       showSync(false);
       updateUI();
-      alert('Todos los datos han sido eliminados');
+      alert('Datos eliminados correctamente');
     } catch (e) {
       showError('Error al borrar datos: ' + e.message);
       showSync(false);
     }
   });
-
-  // Service Worker
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').then(() => console.log('SW registered'));
-  }
 });
+
+// Register Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed:', err));
+  });
+}
