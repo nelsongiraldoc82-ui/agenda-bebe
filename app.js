@@ -32,6 +32,10 @@ let state = {
   growth: []
 };
 
+// Current editing record
+let currentEditRecord = null;
+let currentEditCollection = null;
+
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
@@ -185,6 +189,17 @@ const saveRecord = async (collection, record) => {
   }
 };
 
+const updateRecordToDB = async (collection, id, data) => {
+  if (!currentUser) return;
+  try {
+    showSync(true);
+    await db.collection('users').doc(currentUser.uid).collection(collection).doc(id).update(data);
+    showSync(false);
+  } catch (e) {
+    showError('Error al actualizar: ' + e.message);
+  }
+};
+
 const deleteRecordFromDB = async (collection, id) => {
   if (!currentUser) return;
   try {
@@ -195,6 +210,245 @@ const deleteRecordFromDB = async (collection, id) => {
     showError('Error al eliminar: ' + e.message);
   }
 };
+
+// ============================================
+// EDIT MODAL
+// ============================================
+const openEditModal = (collection, record) => {
+  currentEditCollection = collection;
+  currentEditRecord = record;
+  
+  const modal = document.getElementById('editModal');
+  const title = document.getElementById('editModalTitle');
+  const content = document.getElementById('editModalContent');
+  
+  const date = new Date(record.ts || record.start);
+  const dateStr = date.toISOString().slice(0, 10);
+  const timeStr = date.toTimeString().slice(0, 5);
+  
+  let formHtml = '';
+  
+  if (collection === 'breast') {
+    title.textContent = '🍼 Editar Pecho';
+    formHtml = `
+      <div class="row">
+        <div>
+          <label>Fecha</label>
+          <input type="date" id="editDate" value="${dateStr}" />
+        </div>
+        <div>
+          <label>Hora</label>
+          <input type="time" id="editTime" value="${timeStr}" />
+        </div>
+      </div>
+    `;
+  } else if (collection === 'mix') {
+    title.textContent = '🥛 Editar Alimentación Mixta';
+    formHtml = `
+      <div class="row">
+        <div>
+          <label>Leche materna (oz)</label>
+          <input type="number" step="0.5" min="0" id="editLm" value="${record.lm || 0}" />
+        </div>
+        <div>
+          <label>Fórmula (oz)</label>
+          <input type="number" step="0.5" min="0" id="editLf" value="${record.lf || 0}" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Fecha</label>
+          <input type="date" id="editDate" value="${dateStr}" />
+        </div>
+        <div>
+          <label>Hora</label>
+          <input type="time" id="editTime" value="${timeStr}" />
+        </div>
+      </div>
+    `;
+  } else if (collection === 'pump') {
+    title.textContent = '💧 Editar Extracción';
+    formHtml = `
+      <div class="row">
+        <div>
+          <label>Izquierdo (oz)</label>
+          <input type="number" step="0.5" min="0" id="editPumpL" value="${record.l || 0}" />
+        </div>
+        <div>
+          <label>Derecho (oz)</label>
+          <input type="number" step="0.5" min="0" id="editPumpR" value="${record.r || 0}" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Fecha</label>
+          <input type="date" id="editDate" value="${dateStr}" />
+        </div>
+        <div>
+          <label>Hora</label>
+          <input type="time" id="editTime" value="${timeStr}" />
+        </div>
+      </div>
+    `;
+  } else if (collection === 'diaper') {
+    title.textContent = '👶 Editar Pañal';
+    formHtml = `
+      <div class="row">
+        <div>
+          <label>Tipo</label>
+          <select id="editDiaperType">
+            <option value="pipi" ${record.type === 'pipi' ? 'selected' : ''}>Pipí 💧</option>
+            <option value="caca" ${record.type === 'caca' ? 'selected' : ''}>Popó 💩</option>
+            <option value="ambos" ${record.type === 'ambos' ? 'selected' : ''}>Ambos 💧💩</option>
+          </select>
+        </div>
+        <div>
+          <label>Hora</label>
+          <input type="time" id="editTime" value="${timeStr}" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Fecha</label>
+          <input type="date" id="editDate" value="${dateStr}" />
+        </div>
+      </div>
+    `;
+  } else if (collection === 'sleep') {
+    const startDate = new Date(record.start);
+    const endDate = new Date(record.end);
+    title.textContent = '😴 Editar Sueño';
+    formHtml = `
+      <div class="row">
+        <div>
+          <label>Fecha inicio</label>
+          <input type="date" id="editStartDate" value="${startDate.toISOString().slice(0, 10)}" />
+        </div>
+        <div>
+          <label>Hora inicio</label>
+          <input type="time" id="editStartTime" value="${startDate.toTimeString().slice(0, 5)}" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Fecha fin</label>
+          <input type="date" id="editEndDate" value="${endDate.toISOString().slice(0, 10)}" />
+        </div>
+        <div>
+          <label>Hora fin</label>
+          <input type="time" id="editEndTime" value="${endDate.toTimeString().slice(0, 5)}" />
+        </div>
+      </div>
+    `;
+  } else if (collection === 'growth') {
+    title.textContent = '📏 Editar Crecimiento';
+    formHtml = `
+      <div class="row">
+        <div>
+          <label>Peso (kg)</label>
+          <input type="number" step="0.1" id="editWeight" value="${record.w || 0}" />
+        </div>
+        <div>
+          <label>Talla (cm)</label>
+          <input type="number" id="editHeight" value="${record.h || 0}" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Fecha</label>
+          <input type="date" id="editDate" value="${dateStr}" />
+        </div>
+        <div>
+          <label>Hora</label>
+          <input type="time" id="editTime" value="${timeStr}" />
+        </div>
+      </div>
+    `;
+  }
+  
+  content.innerHTML = formHtml;
+  modal.classList.add('open');
+};
+
+const closeEditModal = () => {
+  document.getElementById('editModal').classList.remove('open');
+  currentEditRecord = null;
+  currentEditCollection = null;
+};
+
+const saveEditedRecord = async () => {
+  if (!currentEditRecord || !currentEditCollection) return;
+  
+  let updateData = {};
+  
+  if (currentEditCollection === 'breast') {
+    const date = document.getElementById('editDate').value;
+    const time = document.getElementById('editTime').value;
+    updateData.ts = new Date(`${date}T${time}`).toISOString();
+  } else if (currentEditCollection === 'mix') {
+    const date = document.getElementById('editDate').value;
+    const time = document.getElementById('editTime').value;
+    updateData.ts = new Date(`${date}T${time}`).toISOString();
+    updateData.lm = parseFloat(document.getElementById('editLm').value) || 0;
+    updateData.lf = parseFloat(document.getElementById('editLf').value) || 0;
+  } else if (currentEditCollection === 'pump') {
+    const date = document.getElementById('editDate').value;
+    const time = document.getElementById('editTime').value;
+    updateData.ts = new Date(`${date}T${time}`).toISOString();
+    updateData.l = parseFloat(document.getElementById('editPumpL').value) || 0;
+    updateData.r = parseFloat(document.getElementById('editPumpR').value) || 0;
+  } else if (currentEditCollection === 'diaper') {
+    const date = document.getElementById('editDate').value;
+    const time = document.getElementById('editTime').value;
+    updateData.ts = new Date(`${date}T${time}`).toISOString();
+    updateData.type = document.getElementById('editDiaperType').value;
+  } else if (currentEditCollection === 'sleep') {
+    const startDate = document.getElementById('editStartDate').value;
+    const startTime = document.getElementById('editStartTime').value;
+    const endDate = document.getElementById('editEndDate').value;
+    const endTime = document.getElementById('editEndTime').value;
+    
+    const start = new Date(`${startDate}T${startTime}`);
+    const end = new Date(`${endDate}T${endTime}`);
+    
+    if (end <= start) {
+      alert('La hora de fin debe ser mayor que la de inicio');
+      return;
+    }
+    
+    updateData.start = start.toISOString();
+    updateData.end = end.toISOString();
+    updateData.ts = start.toISOString();
+    updateData.min = Math.round((end - start) / 60000);
+  } else if (currentEditCollection === 'growth') {
+    const date = document.getElementById('editDate').value;
+    const time = document.getElementById('editTime').value;
+    updateData.ts = new Date(`${date}T${time}`).toISOString();
+    updateData.w = parseFloat(document.getElementById('editWeight').value) || 0;
+    updateData.h = parseFloat(document.getElementById('editHeight').value) || 0;
+  }
+  
+  // Update in state
+  const index = state[currentEditCollection].findIndex(r => r.id === currentEditRecord.id);
+  if (index !== -1) {
+    state[currentEditCollection][index] = { ...state[currentEditCollection][index], ...updateData };
+  }
+  
+  // Update in DB
+  await updateRecordToDB(currentEditCollection, currentEditRecord.id, updateData);
+  
+  closeEditModal();
+  
+  // Refresh UI
+  updateUI();
+  renderRecentFeeding();
+  renderRecentDiapers();
+  renderRecentSleep();
+  renderGrowthHistory();
+  renderMonthlyHistory();
+};
+
+window.closeEditModal = closeEditModal;
 
 // ============================================
 // UI RENDERING
@@ -309,7 +563,6 @@ const renderMonthlySummary = () => {
   const monthRange = getMonthRange();
   const now = new Date();
   const daysInMonth = now.getDate();
-  const avgSleep = monthSleep.length > 0 ? totalSleep / daysInMonth : 0;
   
   const lastWeight = monthGrowth.length > 0 ? monthGrowth[0].w : null;
   const lastHeight = monthGrowth.length > 0 ? monthGrowth[0].h : null;
@@ -413,7 +666,7 @@ const renderTimelineIn = (containerId) => {
 };
 
 // ============================================
-// REGISTROS RECIENTES
+// REGISTROS RECIENTES (con botón editar)
 // ============================================
 const renderRecentFeeding = () => {
   const container = document.getElementById('recentFeeding');
@@ -428,12 +681,13 @@ const renderRecentFeeding = () => {
   
   let html = '';
   allRecords.slice(0, 10).forEach(r => {
+    const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('${r.type}', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('${r.type}', '${r.id}')">🗑</button></div>`;
     if (r.type === 'breast') {
-      html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho</span><button class="btn-danger" onclick="delRecord('breast', '${r.id}')">🗑</button></div>`;
+      html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho</span>${actions}</div>`;
     } else if (r.type === 'mix') {
-      html += `<div class="record-item"><span>🥛 ${formatDateTime(r.ts)} — Mixta: ${r.lm}oz LM + ${r.lf}oz fórmula</span><button class="btn-danger" onclick="delRecord('mix', '${r.id}')">🗑</button></div>`;
+      html += `<div class="record-item"><span>🥛 ${formatDateTime(r.ts)} — Mixta: ${r.lm}oz LM + ${r.lf}oz fórmula</span>${actions}</div>`;
     } else if (r.type === 'pump') {
-      html += `<div class="record-item"><span>💧 ${formatDateTime(r.ts)} — Extracción: ${r.l}oz izq + ${r.r}oz der</span><button class="btn-danger" onclick="delRecord('pump', '${r.id}')">🗑</button></div>`;
+      html += `<div class="record-item"><span>💧 ${formatDateTime(r.ts)} — Extracción: ${r.l}oz izq + ${r.r}oz der</span>${actions}</div>`;
     }
   });
   container.innerHTML = html || '<p class="muted text-center">No hay registros</p>';
@@ -448,7 +702,8 @@ const renderRecentDiapers = () => {
   let html = '';
   sorted.slice(0, 10).forEach(r => {
     const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
-    html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — Pañal ${r.type}</span><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
+    const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('diaper', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
+    html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — Pañal ${r.type}</span>${actions}</div>`;
   });
   container.innerHTML = html || '<p class="muted text-center">No hay registros</p>';
 };
@@ -464,7 +719,8 @@ const renderRecentSleep = () => {
     const hours = Math.floor(r.min / 60);
     const mins = r.min % 60;
     const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
-    html += `<div class="record-item"><span>😴 ${formatDateTime(r.ts || r.start)} — Sueño: ${duration}</span><button class="btn-danger" onclick="delRecord('sleep', '${r.id}')">🗑</button></div>`;
+    const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('sleep', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('sleep', '${r.id}')">🗑</button></div>`;
+    html += `<div class="record-item"><span>😴 ${formatDateTime(r.ts || r.start)} — Sueño: ${duration}</span>${actions}</div>`;
   });
   container.innerHTML = html || '<p class="muted text-center">No hay registros</p>';
 };
@@ -478,7 +734,8 @@ const renderGrowthHistory = () => {
   let html = '';
   sorted.slice(0, 5).forEach(r => {
     const dateStr = r.ts ? formatDateTime(r.ts) : r.date;
-    html += `<div class="record-item"><span>📏 ${dateStr} — Peso: ${r.w}kg, Talla: ${r.h}cm</span><button class="btn-danger" onclick="delRecord('growth', '${r.id}')">🗑</button></div>`;
+    const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('growth', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('growth', '${r.id}')">🗑</button></div>`;
+    html += `<div class="record-item"><span>📏 ${dateStr} — Peso: ${r.w}kg, Talla: ${r.h}cm</span>${actions}</div>`;
   });
   container.innerHTML = html || '<p class="muted text-center">No hay registros</p>';
 };
@@ -501,7 +758,6 @@ const renderMonthlyHistory = () => {
   let html = '';
   
   if (currentHistoryTab === 'feeding') {
-    // Combinar todos los de alimentación
     const allFeeding = [];
     monthBreast.forEach(r => allFeeding.push({ ...r, type: 'breast', sortTs: r.ts }));
     monthMix.forEach(r => allFeeding.push({ ...r, type: 'mix', sortTs: r.ts }));
@@ -510,12 +766,13 @@ const renderMonthlyHistory = () => {
     
     html = `<div class="muted mb-2">Total: ${allFeeding.length} registros</div>`;
     allFeeding.forEach(r => {
+      const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('${r.type}', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('${r.type}', '${r.id}')">🗑</button></div>`;
       if (r.type === 'breast') {
-        html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho</span><button class="btn-danger" onclick="delRecord('breast', '${r.id}')">🗑</button></div>`;
+        html += `<div class="record-item"><span>🍼 ${formatDateTime(r.ts)} — Pecho</span>${actions}</div>`;
       } else if (r.type === 'mix') {
-        html += `<div class="record-item"><span>🥛 ${formatDateTime(r.ts)} — Mixta: ${r.lm}oz LM + ${r.lf}oz fórmula</span><button class="btn-danger" onclick="delRecord('mix', '${r.id}')">🗑</button></div>`;
+        html += `<div class="record-item"><span>🥛 ${formatDateTime(r.ts)} — Mixta: ${r.lm}oz LM + ${r.lf}oz fórmula</span>${actions}</div>`;
       } else if (r.type === 'pump') {
-        html += `<div class="record-item"><span>💧 ${formatDateTime(r.ts)} — Extracción: ${r.l}oz + ${r.r}oz</span><button class="btn-danger" onclick="delRecord('pump', '${r.id}')">🗑</button></div>`;
+        html += `<div class="record-item"><span>💧 ${formatDateTime(r.ts)} — Extracción: ${r.l}oz + ${r.r}oz</span>${actions}</div>`;
       }
     });
   } else if (currentHistoryTab === 'diapers') {
@@ -523,7 +780,8 @@ const renderMonthlyHistory = () => {
     html = `<div class="muted mb-2">Total: ${sorted.length} pañales</div>`;
     sorted.forEach(r => {
       const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
-      html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — ${r.type}</span><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
+      const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('diaper', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
+      html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — ${r.type}</span>${actions}</div>`;
     });
   } else if (currentHistoryTab === 'sleep') {
     const sorted = [...monthSleep].sort((a, b) => new Date(b.ts || b.start) - new Date(a.ts || a.start));
@@ -533,7 +791,8 @@ const renderMonthlyHistory = () => {
       const hours = Math.floor(r.min / 60);
       const mins = r.min % 60;
       const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
-      html += `<div class="record-item"><span>😴 ${formatDateTime(r.ts || r.start)} — ${duration}</span><button class="btn-danger" onclick="delRecord('sleep', '${r.id}')">🗑</button></div>`;
+      const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('sleep', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('sleep', '${r.id}')">🗑</button></div>`;
+      html += `<div class="record-item"><span>😴 ${formatDateTime(r.ts || r.start)} — ${duration}</span>${actions}</div>`;
     });
   }
   
@@ -586,6 +845,14 @@ const getTodayWithTime = (timeId) => {
   return new Date(`${today}T${time}`).toISOString();
 };
 
+// Edit record - abre el modal
+window.editRecord = (collection, id) => {
+  const record = state[collection].find(r => r.id === id);
+  if (record) {
+    openEditModal(collection, record);
+  }
+};
+
 // Delete record
 window.delRecord = async (collection, id) => {
   if (!confirm('¿Eliminar este registro?')) return;
@@ -595,6 +862,7 @@ window.delRecord = async (collection, id) => {
   renderRecentFeeding();
   renderRecentDiapers();
   renderRecentSleep();
+  renderGrowthHistory();
   renderMonthlyHistory();
 };
 
@@ -813,9 +1081,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ============================================
-  // Pecho: Solo hora
-  // ============================================
+  // Pecho
   document.getElementById('saveBreast')?.addEventListener('click', async () => {
     const ts = getTodayWithTime('breastTime');
     const record = { id: genId(), ts };
@@ -823,13 +1089,10 @@ document.addEventListener('DOMContentLoaded', () => {
     await saveRecord('breast', record);
     renderRecentFeeding();
     renderTimelineIn('homeTimeline');
-    // Reset time to now
     document.getElementById('breastTime').value = new Date().toTimeString().slice(0, 5);
   });
 
-  // ============================================
-  // Mix feeding: Cantidades + hora
-  // ============================================
+  // Mix feeding
   document.getElementById('saveMix')?.addEventListener('click', async () => {
     const lm = parseFloat(document.getElementById('mixLm').value) || 0;
     const lf = parseFloat(document.getElementById('mixLf').value) || 0;
@@ -848,9 +1111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTimelineIn('homeTimeline');
   });
 
-  // ============================================
-  // Extracción: Cantidad + hora
-  // ============================================
+  // Extracción
   document.getElementById('savePump')?.addEventListener('click', async () => {
     const l = parseFloat(document.getElementById('pumpL').value) || 0;
     const r = parseFloat(document.getElementById('pumpR').value) || 0;
@@ -869,9 +1130,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTimelineIn('homeTimeline');
   });
 
-  // ============================================
-  // Pañal: Solo hora (fecha por defecto hoy)
-  // ============================================
+  // Pañal
   document.getElementById('saveDiaper')?.addEventListener('click', async () => {
     const type = document.getElementById('diaperType').value;
     const ts = getTodayWithTime('diaperTime');
@@ -883,9 +1142,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTimelineIn('homeTimeline');
   });
 
-  // ============================================
-  // Sueño: Solo manual (sin timer)
-  // ============================================
+  // Sueño
   document.getElementById('saveSleepManual')?.addEventListener('click', async () => {
     const startDate = document.getElementById('sleepDate').value;
     const startTime = document.getElementById('sleepTimeStart').value;
@@ -916,7 +1173,6 @@ document.addEventListener('DOMContentLoaded', () => {
     state.sleep.unshift(record);
     await saveRecord('sleep', record);
     
-    // Reset
     const now = new Date();
     document.getElementById('sleepDate').value = now.toISOString().slice(0, 10);
     document.getElementById('sleepDateEnd').value = now.toISOString().slice(0, 10);
@@ -927,9 +1183,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTimelineIn('homeTimeline');
   });
 
-  // ============================================
   // Crecimiento
-  // ============================================
   document.getElementById('saveGrowth')?.addEventListener('click', async () => {
     const w = parseFloat(document.getElementById('growthWeight').value) || 0;
     const h = parseFloat(document.getElementById('growthHeight').value) || 0;
@@ -946,9 +1200,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderGrowthHistory();
   });
 
-  // ============================================
   // Historial: Búsqueda por fecha
-  // ============================================
   document.getElementById('searchHistory')?.addEventListener('click', () => {
     const searchDate = document.getElementById('historyDate').value;
     if (!searchDate) {
@@ -1011,9 +1263,15 @@ document.addEventListener('DOMContentLoaded', () => {
     card.style.display = 'block';
   });
 
-  // ============================================
+  // Save edit button
+  document.getElementById('saveEditBtn')?.addEventListener('click', saveEditedRecord);
+  
+  // Close modal on overlay click
+  document.getElementById('editModal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'editModal') closeEditModal();
+  });
+
   // Borrar datos
-  // ============================================
   document.getElementById('clearData')?.addEventListener('click', async () => {
     if (!confirm('¿Estás seguro? Se borrarán TODOS tus datos. Esta acción no se puede deshacer.')) return;
     if (!confirm('¿REALMENTE quieres borrar todo?')) return;
