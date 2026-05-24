@@ -757,14 +757,17 @@ let currentHistoryTab = 'feeding';
 // Chart instances
 let chartInstances = {};
 
-// Check if date is in previous month
-const isPreviousMonth = (ts) => {
+// Check if date is in previous month (same days as current month)
+const isPreviousMonthSameDays = (ts) => {
   const date = new Date(ts);
   const now = new Date();
-  const firstDayCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const firstDayPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastDayPreviousMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-  return date >= firstDayPreviousMonth && date <= lastDayPreviousMonth;
+  const currentDay = now.getDate();
+  
+  // First X days of previous month
+  const firstDayPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastDayToCompare = new Date(now.getFullYear(), now.getMonth() - 1, currentDay, 23, 59, 59, 999);
+  
+  return date >= firstDayPrevMonth && date <= lastDayToCompare;
 };
 
 // Get previous month name
@@ -776,7 +779,7 @@ const getPreviousMonthName = () => {
 };
 
 // Create a single doughnut chart
-const createDoughnutChart = (canvasId, label, prevValue, currentValue, colors) => {
+const createDoughnutChart = (canvasId, label, prevValue, currentValue, prevMonthName, currentDay) => {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   
@@ -786,10 +789,12 @@ const createDoughnutChart = (canvasId, label, prevValue, currentValue, colors) =
   }
   
   const ctx = canvas.getContext('2d');
+  const currentMonthName = getMonthRange().monthName;
+  
   chartInstances[canvasId] = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: [getPreviousMonthName(), getMonthRange().monthName],
+      labels: [`${prevMonthName} (1-${currentDay})`, `${currentMonthName} (1-${currentDay})`],
       datasets: [{
         data: [prevValue, currentValue],
         backgroundColor: ['rgba(255, 111, 168, 0.8)', 'rgba(127, 98, 255, 0.8)'],
@@ -834,21 +839,25 @@ const renderMonthlyChart = () => {
   const currentSleep = state.sleep.filter(r => isCurrentMonth(r.ts || r.start));
   const currentSleepHours = currentSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
   
-  // Previous month data
-  const prevBreast = state.breast.filter(r => isPreviousMonth(r.ts)).length;
-  const prevMix = state.mix.filter(r => isPreviousMonth(r.ts));
-  const prevPump = state.pump.filter(r => isPreviousMonth(r.ts));
+  // Previous month data (same days)
+  const prevBreast = state.breast.filter(r => isPreviousMonthSameDays(r.ts)).length;
+  const prevMix = state.mix.filter(r => isPreviousMonthSameDays(r.ts));
+  const prevPump = state.pump.filter(r => isPreviousMonthSameDays(r.ts));
   const prevOz = prevMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0) + 
                  prevPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
-  const prevDiaper = state.diaper.filter(r => isPreviousMonth(r.ts)).length;
-  const prevSleep = state.sleep.filter(r => isPreviousMonth(r.ts || r.start));
+  const prevDiaper = state.diaper.filter(r => isPreviousMonthSameDays(r.ts)).length;
+  const prevSleep = state.sleep.filter(r => isPreviousMonthSameDays(r.ts || r.start));
   const prevSleepHours = prevSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
   
-  // Create doughnut charts
-  createDoughnutChart('chartBreast', '🍼 Pechos', prevBreast || 0, currentBreast || 0);
-  createDoughnutChart('chartOz', '🥛 Onzas', prevOz || 0, currentOz || 0);
-  createDoughnutChart('chartDiaper', '👶 Pañales', prevDiaper || 0, currentDiaper || 0);
-  createDoughnutChart('chartSleep', '😴 Horas', prevSleepHours || 0, currentSleepHours || 0);
+  // Get current day for label
+  const currentDay = new Date().getDate();
+  const prevMonthName = getPreviousMonthName();
+  
+  // Create doughnut charts with updated labels
+  createDoughnutChart('chartBreast', '🍼 Pechos', prevBreast || 0, currentBreast || 0, prevMonthName, currentDay);
+  createDoughnutChart('chartOz', '🥛 Onzas', prevOz || 0, currentOz || 0, prevMonthName, currentDay);
+  createDoughnutChart('chartDiaper', '👶 Pañales', prevDiaper || 0, currentDiaper || 0, prevMonthName, currentDay);
+  createDoughnutChart('chartSleep', '😴 Horas', prevSleepHours || 0, currentSleepHours || 0, prevMonthName, currentDay);
 };
 
 const renderMonthlyHistory = () => {
