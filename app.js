@@ -754,6 +754,130 @@ const renderGrowthHistory = () => {
 // ============================================
 let currentHistoryTab = 'feeding';
 
+// Chart instance
+let monthlyChartInstance = null;
+
+// Check if date is in previous month
+const isPreviousMonth = (ts) => {
+  const date = new Date(ts);
+  const now = new Date();
+  const firstDayCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const firstDayPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastDayPreviousMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+  return date >= firstDayPreviousMonth && date <= lastDayPreviousMonth;
+};
+
+// Get previous month name
+const getPreviousMonthName = () => {
+  const now = new Date();
+  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+  return monthNames[prevMonth];
+};
+
+// Render monthly comparison chart
+const renderMonthlyChart = () => {
+  const canvas = document.getElementById('monthlyChart');
+  if (!canvas) return;
+  
+  // Current month data
+  const currentBreast = state.breast.filter(r => isCurrentMonth(r.ts)).length;
+  const currentMix = state.mix.filter(r => isCurrentMonth(r.ts));
+  const currentPump = state.pump.filter(r => isCurrentMonth(r.ts));
+  const currentOz = currentMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0) + 
+                    currentPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
+  const currentDiaper = state.diaper.filter(r => isCurrentMonth(r.ts)).length;
+  const currentSleep = state.sleep.filter(r => isCurrentMonth(r.ts || r.start));
+  const currentSleepHours = currentSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
+  
+  // Previous month data
+  const prevBreast = state.breast.filter(r => isPreviousMonth(r.ts)).length;
+  const prevMix = state.mix.filter(r => isPreviousMonth(r.ts));
+  const prevPump = state.pump.filter(r => isPreviousMonth(r.ts));
+  const prevOz = prevMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0) + 
+                 prevPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
+  const prevDiaper = state.diaper.filter(r => isPreviousMonth(r.ts)).length;
+  const prevSleep = state.sleep.filter(r => isPreviousMonth(r.ts || r.start));
+  const prevSleepHours = prevSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
+  
+  // Get current month name
+  const currentMonthName = getMonthRange().monthName;
+  const prevMonthName = getPreviousMonthName();
+  
+  // Destroy previous chart if exists
+  if (monthlyChartInstance) {
+    monthlyChartInstance.destroy();
+  }
+  
+  // Get theme colors
+  const isDark = state.dark;
+  const textColor = isDark ? '#f1f1f3' : '#2b2b2b';
+  const gridColor = isDark ? '#2f2e36' : '#f5cddd';
+  
+  // Create chart
+  const ctx = canvas.getContext('2d');
+  monthlyChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['🍼 Pechos', '🥛 Onzas', '👶 Pañales', '😴 Horas sueño'],
+      datasets: [
+        {
+          label: prevMonthName,
+          data: [prevBreast, prevOz, prevDiaper, prevSleepHours],
+          backgroundColor: 'rgba(255, 111, 168, 0.5)',
+          borderColor: 'rgba(255, 111, 168, 1)',
+          borderWidth: 2,
+          borderRadius: 8
+        },
+        {
+          label: currentMonthName,
+          data: [currentBreast, currentOz, currentDiaper, currentSleepHours],
+          backgroundColor: 'rgba(127, 98, 255, 0.7)',
+          borderColor: 'rgba(127, 98, 255, 1)',
+          borderWidth: 2,
+          borderRadius: 8
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            color: textColor,
+            font: { size: 12 },
+            usePointStyle: true,
+            padding: 20
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: gridColor
+          },
+          ticks: {
+            color: textColor,
+            font: { size: 11 }
+          }
+        },
+        x: {
+          grid: {
+            display: false
+          },
+          ticks: {
+            color: textColor,
+            font: { size: 11 }
+          }
+        }
+      }
+    }
+  });
+};
+
 const renderMonthlyHistory = () => {
   const container = document.getElementById('monthlyHistoryContent');
   if (!container) return;
@@ -825,7 +949,10 @@ const showView = (view) => {
   if (overlay) overlay.classList.remove('open');
 
   if (view === 'home') renderHome();
-  if (view === 'history') renderMonthlyHistory();
+  if (view === 'history') {
+    renderMonthlyHistory();
+    renderMonthlyChart();
+  }
 };
 
 window.showView = showView;
