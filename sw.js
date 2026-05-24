@@ -1,4 +1,4 @@
-const CACHE_NAME = 'agenda-bebe-v16';
+const CACHE_NAME = 'agenda-bebe-v17';
 const urlsToCache = [
   '/',
   '/index.html',

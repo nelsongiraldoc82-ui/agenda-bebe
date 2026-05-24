@@ -206,6 +206,12 @@
     /* Record actions */
     .record-actions { display: flex; gap: 4px; }
     .btn-edit { background: var(--btn2); color: #222; border: 0; border-radius: 8px; padding: 4px 8px; cursor: pointer; font-size: 11px; }
+    
+    /* Chart container */
+    .chart-container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+    .chart-item { text-align: center; }
+    .chart-item canvas { max-height: 120px; }
+    @media (max-width: 400px) { .chart-container { grid-template-columns: 1fr; } .chart-item canvas { max-height: 150px; } }
   </style>
 </head>
 <body>
@@ -496,7 +502,20 @@
       <!-- Gráfica comparativa -->
       <section class="card">
         <h3>📊 Comparativa mensual</h3>
-        <canvas id="monthlyChart" height="250"></canvas>
+        <div class="chart-container">
+          <div class="chart-item">
+            <canvas id="chartBreast"></canvas>
+          </div>
+          <div class="chart-item">
+            <canvas id="chartOz"></canvas>
+          </div>
+          <div class="chart-item">
+            <canvas id="chartDiaper"></canvas>
+          </div>
+          <div class="chart-item">
+            <canvas id="chartSleep"></canvas>
+          </div>
+        </div>
       </section>
     </div>
 

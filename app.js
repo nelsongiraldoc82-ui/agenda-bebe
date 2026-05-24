@@ -754,8 +754,8 @@ const renderGrowthHistory = () => {
 // ============================================
 let currentHistoryTab = 'feeding';
 
-// Chart instance
-let monthlyChartInstance = null;
+// Chart instances
+let chartInstances = {};
 
 // Check if date is in previous month
 const isPreviousMonth = (ts) => {
@@ -775,11 +775,55 @@ const getPreviousMonthName = () => {
   return monthNames[prevMonth];
 };
 
-// Render monthly comparison chart
-const renderMonthlyChart = () => {
-  const canvas = document.getElementById('monthlyChart');
+// Create a single doughnut chart
+const createDoughnutChart = (canvasId, label, prevValue, currentValue, colors) => {
+  const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   
+  // Destroy previous chart if exists
+  if (chartInstances[canvasId]) {
+    chartInstances[canvasId].destroy();
+  }
+  
+  const ctx = canvas.getContext('2d');
+  chartInstances[canvasId] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: [getPreviousMonthName(), getMonthRange().monthName],
+      datasets: [{
+        data: [prevValue, currentValue],
+        backgroundColor: ['rgba(255, 111, 168, 0.8)', 'rgba(127, 98, 255, 0.8)'],
+        borderColor: ['rgba(255, 111, 168, 1)', 'rgba(127, 98, 255, 1)'],
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      cutout: '60%',
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            boxWidth: 12,
+            padding: 8,
+            font: { size: 10 }
+          }
+        },
+        title: {
+          display: true,
+          text: label,
+          font: { size: 13, weight: 'bold' },
+          padding: { bottom: 8 }
+        }
+      }
+    }
+  });
+};
+
+// Render monthly comparison charts
+const renderMonthlyChart = () => {
   // Current month data
   const currentBreast = state.breast.filter(r => isCurrentMonth(r.ts)).length;
   const currentMix = state.mix.filter(r => isCurrentMonth(r.ts));
@@ -800,82 +844,11 @@ const renderMonthlyChart = () => {
   const prevSleep = state.sleep.filter(r => isPreviousMonth(r.ts || r.start));
   const prevSleepHours = prevSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
   
-  // Get current month name
-  const currentMonthName = getMonthRange().monthName;
-  const prevMonthName = getPreviousMonthName();
-  
-  // Destroy previous chart if exists
-  if (monthlyChartInstance) {
-    monthlyChartInstance.destroy();
-  }
-  
-  // Get theme colors
-  const isDark = state.dark;
-  const textColor = isDark ? '#f1f1f3' : '#2b2b2b';
-  const gridColor = isDark ? '#2f2e36' : '#f5cddd';
-  
-  // Create chart
-  const ctx = canvas.getContext('2d');
-  monthlyChartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: ['🍼 Pechos', '🥛 Onzas', '👶 Pañales', '😴 Horas sueño'],
-      datasets: [
-        {
-          label: prevMonthName,
-          data: [prevBreast, prevOz, prevDiaper, prevSleepHours],
-          backgroundColor: 'rgba(255, 111, 168, 0.5)',
-          borderColor: 'rgba(255, 111, 168, 1)',
-          borderWidth: 2,
-          borderRadius: 8
-        },
-        {
-          label: currentMonthName,
-          data: [currentBreast, currentOz, currentDiaper, currentSleepHours],
-          backgroundColor: 'rgba(127, 98, 255, 0.7)',
-          borderColor: 'rgba(127, 98, 255, 1)',
-          borderWidth: 2,
-          borderRadius: 8
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'top',
-          labels: {
-            color: textColor,
-            font: { size: 12 },
-            usePointStyle: true,
-            padding: 20
-          }
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          grid: {
-            color: gridColor
-          },
-          ticks: {
-            color: textColor,
-            font: { size: 11 }
-          }
-        },
-        x: {
-          grid: {
-            display: false
-          },
-          ticks: {
-            color: textColor,
-            font: { size: 11 }
-          }
-        }
-      }
-    }
-  });
+  // Create doughnut charts
+  createDoughnutChart('chartBreast', '🍼 Pechos', prevBreast || 0, currentBreast || 0);
+  createDoughnutChart('chartOz', '🥛 Onzas', prevOz || 0, currentOz || 0);
+  createDoughnutChart('chartDiaper', '👶 Pañales', prevDiaper || 0, currentDiaper || 0);
+  createDoughnutChart('chartSleep', '😴 Horas', prevSleepHours || 0, currentSleepHours || 0);
 };
 
 const renderMonthlyHistory = () => {
