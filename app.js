@@ -558,6 +558,8 @@ const renderMonthlySummary = () => {
   
   const totalOz = monthMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0);
   const totalPumpOz = monthPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
+  const totalPumpL = monthPump.reduce((s, r) => s + (r.l || 0), 0);
+  const totalPumpR = monthPump.reduce((s, r) => s + (r.r || 0), 0);
   const totalSleep = monthSleep.reduce((s, r) => s + (r.min || 0), 0);
   
   const monthRange = getMonthRange();
@@ -587,8 +589,15 @@ const renderMonthlySummary = () => {
       <div class="summary-item">
         <span class="summary-icon">💧</span>
         <div class="summary-data">
-          <div class="summary-value">${monthPump.length}</div>
-          <div class="summary-label">extracciones</div>
+          <div class="summary-value">${totalPumpL.toFixed(1)}</div>
+          <div class="summary-label">oz izq</div>
+        </div>
+      </div>
+      <div class="summary-item">
+        <span class="summary-icon">💧</span>
+        <div class="summary-data">
+          <div class="summary-value">${totalPumpR.toFixed(1)}</div>
+          <div class="summary-label">oz der</div>
         </div>
       </div>
       <div class="summary-item">
