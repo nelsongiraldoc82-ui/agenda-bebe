@@ -314,8 +314,8 @@ const openEditModal = (collection, record) => {
   const title = document.getElementById('editModalTitle');
   const content = document.getElementById('editModalContent');
   
-  const date = new Date(record.ts || record.start);
-  const dateStr = date.toISOString().slice(0, 10);
+  const date = new Date(record.ts || record.start || (record.date + 'T12:00'));
+  const dateStr = localDateInput(date);
   const timeStr = date.toTimeString().slice(0, 5);
   
   let formHtml = '';
@@ -406,15 +406,19 @@ const openEditModal = (collection, record) => {
         </div>
       </div>
     `;
+    formHtml += `
+      <label for="editDiaperWeight">Peso del pañal (g, opcional)</label>
+      <input type="number" min="0" step="any" id="editDiaperWeight" />
+    `;
   } else if (collection === 'sleep') {
-    const startDate = new Date(record.start);
-    const endDate = new Date(record.end);
+    const startDate = new Date(record.start || record.ts);
+    const endDate = record.end ? new Date(record.end) : new Date(startDate.getTime() + (record.min || 0) * 60000);
     title.textContent = '😴 Editar Sueño';
     formHtml = `
       <div class="row">
         <div>
           <label>Fecha inicio</label>
-          <input type="date" id="editStartDate" value="${startDate.toISOString().slice(0, 10)}" />
+          <input type="date" id="editStartDate" value="${localDateInput(startDate)}" />
         </div>
         <div>
           <label>Hora inicio</label>
@@ -424,7 +428,7 @@ const openEditModal = (collection, record) => {
       <div class="row">
         <div>
           <label>Fecha fin</label>
-          <input type="date" id="editEndDate" value="${endDate.toISOString().slice(0, 10)}" />
+          <input type="date" id="editEndDate" value="${localDateInput(endDate)}" />
         </div>
         <div>
           <label>Hora fin</label>
@@ -438,11 +442,11 @@ const openEditModal = (collection, record) => {
       <div class="row">
         <div>
           <label>Peso (kg)</label>
-          <input type="number" step="0.1" id="editWeight" value="${record.w || 0}" />
+          <input type="number" step="any" min="0" id="editWeight" value="${record.w || 0}" />
         </div>
         <div>
           <label>Talla (cm)</label>
-          <input type="number" id="editHeight" value="${record.h || 0}" />
+          <input type="number" step="any" min="0" id="editHeight" value="${record.h || 0}" />
         </div>
       </div>
       <div class="row">
@@ -459,6 +463,7 @@ const openEditModal = (collection, record) => {
   }
   
   content.innerHTML = formHtml;
+  if (collection === 'diaper') document.getElementById('editDiaperWeight').value = record.weightGrams ?? '';
   modal.classList.add('open');
 };
 
@@ -471,73 +476,28 @@ const closeEditModal = () => {
 const saveEditedRecord = async () => {
   if (!currentEditRecord || !currentEditCollection) return;
   
-  let updateData = {};
+  const user = currentUser;
+  const collection = currentEditCollection;
+  const id = currentEditRecord.id;
+  let updateData;
   
-  if (currentEditCollection === 'breast') {
-    const date = document.getElementById('editDate').value;
-    const time = document.getElementById('editTime').value;
-    updateData.ts = new Date(`${date}T${time}`).toISOString();
-  } else if (currentEditCollection === 'mix') {
-    const date = document.getElementById('editDate').value;
-    const time = document.getElementById('editTime').value;
-    updateData.ts = new Date(`${date}T${time}`).toISOString();
-    updateData.lm = parseFloat(document.getElementById('editLm').value) || 0;
-    updateData.lf = parseFloat(document.getElementById('editLf').value) || 0;
-  } else if (currentEditCollection === 'pump') {
-    const date = document.getElementById('editDate').value;
-    const time = document.getElementById('editTime').value;
-    updateData.ts = new Date(`${date}T${time}`).toISOString();
-    updateData.l = parseFloat(document.getElementById('editPumpL').value) || 0;
-    updateData.r = parseFloat(document.getElementById('editPumpR').value) || 0;
-  } else if (currentEditCollection === 'diaper') {
-    const date = document.getElementById('editDate').value;
-    const time = document.getElementById('editTime').value;
-    updateData.ts = new Date(`${date}T${time}`).toISOString();
-    updateData.type = document.getElementById('editDiaperType').value;
-  } else if (currentEditCollection === 'sleep') {
-    const startDate = document.getElementById('editStartDate').value;
-    const startTime = document.getElementById('editStartTime').value;
-    const endDate = document.getElementById('editEndDate').value;
-    const endTime = document.getElementById('editEndTime').value;
-    
-    const start = new Date(`${startDate}T${startTime}`);
-    const end = new Date(`${endDate}T${endTime}`);
-    
-    if (end <= start) {
-      alert('La hora de fin debe ser mayor que la de inicio');
-      return;
-    }
-    
-    updateData.start = start.toISOString();
-    updateData.end = end.toISOString();
-    updateData.ts = start.toISOString();
-    updateData.min = Math.round((end - start) / 60000);
-  } else if (currentEditCollection === 'growth') {
-    const date = document.getElementById('editDate').value;
-    const time = document.getElementById('editTime').value;
-    updateData.ts = new Date(`${date}T${time}`).toISOString();
-    updateData.w = parseFloat(document.getElementById('editWeight').value) || 0;
-    updateData.h = parseFloat(document.getElementById('editHeight').value) || 0;
+  if (collection === 'sleep') {
+    const start = getDateTime('editStartDate', 'editStartTime', currentEditRecord.start || currentEditRecord.ts);
+    const end = getDateTime('editEndDate', 'editEndTime', currentEditRecord.end);
+    updateData = sleepFields(start, end);
+  } else {
+    updateData = { ts: getDateTime('editDate', 'editTime', currentEditRecord.ts) };
+    if (collection === 'mix') Object.assign(updateData, milkFields('editLm', 'editLf', 'lm', 'lf'));
+    if (collection === 'pump') Object.assign(updateData, milkFields('editPumpL', 'editPumpR', 'l', 'r'));
+    if (collection === 'diaper') Object.assign(updateData, diaperFields('editDiaperType', 'editDiaperWeight'));
+    if (collection === 'growth') Object.assign(updateData, growthFields('editWeight', 'editHeight'));
   }
-  
-  // Update in state
-  const index = state[currentEditCollection].findIndex(r => r.id === currentEditRecord.id);
-  if (index !== -1) {
-    state[currentEditCollection][index] = { ...state[currentEditCollection][index], ...updateData };
-  }
-  
-  // Update in DB
-  await updateRecordToDB(currentEditCollection, currentEditRecord.id, updateData);
-  
-  closeEditModal();
-  
-  // Refresh UI
-  updateUI();
-  renderRecentFeeding();
-  renderRecentDiapers();
-  renderRecentSleep();
-  renderGrowthHistory();
-  renderMonthlyHistory();
+
+  if (!await updateRecordToDB(collection, id, updateData) || currentUser !== user) return;
+  const record = state[collection].find(item => item.id === id);
+  if (record) Object.assign(record, updateData);
+  if (currentEditRecord?.id === id && currentEditCollection === collection) closeEditModal();
+  refreshRecordViews();
 };
 
 window.closeEditModal = closeEditModal;
@@ -763,7 +723,7 @@ const renderRecentDiapers = () => {
   sorted.slice(0, 10).forEach(r => {
     const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
     const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('diaper', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
-    html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — Pañal ${r.type}</span>${actions}</div>`;
+    html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — Pañal ${r.type}${r.weightGrams > 0 ? ' · ' + Number(r.weightGrams) + ' g' : ''}</span>${actions}</div>`;
   });
   container.innerHTML = html || '<p class="muted text-center">No hay registros</p>';
 };
@@ -1058,18 +1018,150 @@ const resetProfileForm = () => {
   chartInstances = {};
 };
 
-// Helper para obtener fecha/hora
-const getDateTime = (dateId, timeId) => {
-  const date = document.getElementById(dateId)?.value || new Date().toISOString().slice(0, 10);
-  const time = document.getElementById(timeId)?.value || new Date().toTimeString().slice(0, 5);
-  return new Date(`${date}T${time}`).toISOString();
+// Record forms use the local calendar date and time shown to the caregiver.
+const recordTimestamp = (date, time) => {
+  if (!date || !time) throw new Error('Completa la fecha y la hora');
+  const value = new Date(`${date}T${time}`);
+  if (!Number.isFinite(value.getTime()) || localDateInput(value) !== date || value.toTimeString().slice(0, 5) !== time.slice(0, 5)) {
+    throw new Error('La fecha u hora no es válida');
+  }
+  if (value.getTime() > Date.now()) throw new Error('La fecha y la hora no pueden ser futuras');
+  return value.toISOString();
 };
 
-// Obtener timestamp de hoy + hora
-const getTodayWithTime = (timeId) => {
-  const today = new Date().toISOString().slice(0, 10);
-  const time = document.getElementById(timeId)?.value || new Date().toTimeString().slice(0, 5);
-  return new Date(`${today}T${time}`).toISOString();
+const getDateTime = (dateId, timeId, original) => {
+  const date = document.getElementById(dateId).value;
+  const time = document.getElementById(timeId).value;
+  const timestamp = recordTimestamp(date, time);
+  // Preserve measured seconds when the editor's minute-precision controls are unchanged.
+  if (original) {
+    const previous = new Date(original);
+    if (previous.getTime() <= Date.now() && localDateInput(previous) === date && previous.toTimeString().slice(0, 5) === time) {
+      return previous.toISOString();
+    }
+  }
+  return timestamp;
+};
+const getTodayWithTime = timeId => recordTimestamp(localDateInput(), document.getElementById(timeId).value);
+
+const optionalAmount = id => {
+  const input = document.getElementById(id);
+  if (input.validity.badInput) throw new Error('Ingresa una cantidad válida');
+  if (!input.value) return null;
+  const value = input.valueAsNumber;
+  if (!Number.isFinite(value) || value < 0) throw new Error('La cantidad no puede ser negativa');
+  return value;
+};
+
+const milkFields = (leftId, rightId, leftKey, rightKey) => {
+  const left = optionalAmount(leftId) ?? 0;
+  const right = optionalAmount(rightId) ?? 0;
+  if (left === 0 && right === 0) throw new Error('Ingresa al menos una cantidad mayor que cero');
+  return { [leftKey]: left, [rightKey]: right };
+};
+
+const diaperFields = (typeId, weightId) => {
+  const weightGrams = optionalAmount(weightId);
+  if (weightGrams === 0) throw new Error('El peso del pañal debe ser mayor que cero');
+  return { type: document.getElementById(typeId).value, weightGrams };
+};
+
+const growthFields = (weightId, heightId) => {
+  const w = optionalAmount(weightId);
+  const h = optionalAmount(heightId);
+  if (!w || !h) throw new Error('Ingresa un peso y una talla mayores que cero');
+  return { w, h };
+};
+
+const sleepFields = (start, end) => {
+  if (Date.parse(end) <= Date.parse(start)) throw new Error('La hora de fin debe ser mayor que la de inicio');
+  return { ts: start, start, end, min: Math.round((Date.parse(end) - Date.parse(start)) / 60000) };
+};
+
+const bindRecordAction = (buttonId, action) => {
+  const button = document.getElementById(buttonId);
+  button.addEventListener('click', async () => {
+    if (button.disabled || !currentUser) return;
+    button.disabled = true;
+    try {
+      await action();
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+};
+
+const addRecord = async (collection, fields, id = genId()) => {
+  const user = currentUser;
+  const record = { ...fields, id };
+  if (!await saveRecord(collection, record) || currentUser !== user) return false;
+  if (!state[collection].some(item => item.id === id)) state[collection].unshift(record);
+  refreshRecordViews();
+  return true;
+};
+
+const resetRecordTime = (timeId, dateId) => {
+  const now = new Date();
+  document.getElementById(timeId).value = now.toTimeString().slice(0, 5);
+  if (dateId) document.getElementById(dateId).value = localDateInput(now);
+};
+
+const timerKey = uid => `agenda-bebe:sleep-timer:${uid}`;
+let sleepInterval;
+const getSleepTimer = uid => {
+  if (!uid) return null;
+  try {
+    const timer = JSON.parse(localStorage.getItem(timerKey(uid)));
+    if (timer?.id && Number.isFinite(Date.parse(timer.start))) return timer;
+  } catch (error) {
+    console.error('Error al leer el cronómetro:', error);
+  }
+  return null;
+};
+
+const renderSleepTimer = () => {
+  const timer = getSleepTimer(currentUser?.uid);
+  const elapsed = timer ? Math.max(0, Math.floor(((timer.end ? Date.parse(timer.end) : Date.now()) - Date.parse(timer.start)) / 1000)) : 0;
+  const parts = [Math.floor(elapsed / 3600), Math.floor(elapsed / 60) % 60, elapsed % 60];
+  document.getElementById('sleepElapsed').textContent = parts.map(n => String(n).padStart(2, '0')).join(':');
+  document.getElementById('sleepTimerAction').textContent = timer?.end ? 'Reintentar guardado' : timer ? 'Terminar y guardar' : 'Iniciar sueño';
+  document.getElementById('sleepTimerCancel').style.display = timer ? '' : 'none';
+  if (timer && !timer.end && !sleepInterval) sleepInterval = setInterval(renderSleepTimer, 1000);
+  if ((!timer || timer.end) && sleepInterval) {
+    clearInterval(sleepInterval);
+    sleepInterval = null;
+  }
+};
+
+const clearSleepTimer = uid => {
+  localStorage.removeItem(timerKey(uid));
+  renderSleepTimer();
+};
+
+const toggleSleepTimer = async () => {
+  const uid = currentUser.uid;
+  const now = new Date().toISOString();
+  const timer = getSleepTimer(uid);
+  if (!timer) {
+    localStorage.setItem(timerKey(uid), JSON.stringify({ id: genId(), start: now }));
+    renderSleepTimer();
+    return;
+  }
+
+  const end = timer.end || now;
+  const fields = sleepFields(timer.start, end);
+  // Keep the ID and stop time for retries, including after a page reload.
+  localStorage.setItem(timerKey(uid), JSON.stringify({ ...timer, end }));
+  const cancel = document.getElementById('sleepTimerCancel');
+  cancel.disabled = true;
+  renderSleepTimer();
+  try {
+    if (await addRecord('sleep', fields, timer.id) && getSleepTimer(uid)?.id === timer.id) clearSleepTimer(uid);
+  } finally {
+    cancel.disabled = false;
+  }
 };
 
 // Edit record - abre el modal
@@ -1291,123 +1383,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Pecho
-  document.getElementById('saveBreast')?.addEventListener('click', async () => {
-    const ts = getTodayWithTime('breastTime');
-    const record = { id: genId(), ts };
-    state.breast.unshift(record);
-    await saveRecord('breast', record);
-    renderRecentFeeding();
-    renderTimelineIn('homeTimeline');
-    document.getElementById('breastTime').value = new Date().toTimeString().slice(0, 5);
+  bindRecordAction('saveBreast', async () => {
+    if (await addRecord('breast', { ts: getTodayWithTime('breastTime') })) resetRecordTime('breastTime');
   });
 
-  // Mix feeding
-  document.getElementById('saveMix')?.addEventListener('click', async () => {
-    const lm = parseFloat(document.getElementById('mixLm').value) || 0;
-    const lf = parseFloat(document.getElementById('mixLf').value) || 0;
-    if (lm === 0 && lf === 0) {
-      alert('Ingresa al menos una cantidad');
-      return;
-    }
-    const ts = getTodayWithTime('mixTime');
-    const record = { id: genId(), ts, lm, lf };
-    state.mix.unshift(record);
-    await saveRecord('mix', record);
+  bindRecordAction('saveMix', async () => {
+    const fields = milkFields('mixLm', 'mixLf', 'lm', 'lf');
+    if (!await addRecord('mix', { ...fields, ts: getTodayWithTime('mixTime') })) return;
     document.getElementById('mixLm').value = '';
     document.getElementById('mixLf').value = '';
-    document.getElementById('mixTime').value = new Date().toTimeString().slice(0, 5);
-    renderRecentFeeding();
-    renderTimelineIn('homeTimeline');
+    resetRecordTime('mixTime');
   });
 
-  // Extracción
-  document.getElementById('savePump')?.addEventListener('click', async () => {
-    const l = parseFloat(document.getElementById('pumpL').value) || 0;
-    const r = parseFloat(document.getElementById('pumpR').value) || 0;
-    if (l === 0 && r === 0) {
-      alert('Ingresa al menos una cantidad');
-      return;
-    }
-    const ts = getTodayWithTime('pumpTime');
-    const record = { id: genId(), ts, l, r };
-    state.pump.unshift(record);
-    await saveRecord('pump', record);
+  bindRecordAction('savePump', async () => {
+    const fields = milkFields('pumpL', 'pumpR', 'l', 'r');
+    if (!await addRecord('pump', { ...fields, ts: getTodayWithTime('pumpTime') })) return;
     document.getElementById('pumpL').value = '';
     document.getElementById('pumpR').value = '';
-    document.getElementById('pumpTime').value = new Date().toTimeString().slice(0, 5);
-    renderRecentFeeding();
-    renderTimelineIn('homeTimeline');
+    resetRecordTime('pumpTime');
   });
 
-  // Pañal
-  document.getElementById('saveDiaper')?.addEventListener('click', async () => {
-    const type = document.getElementById('diaperType').value;
-    const ts = getTodayWithTime('diaperTime');
-    const record = { id: genId(), ts, type };
-    state.diaper.unshift(record);
-    await saveRecord('diaper', record);
-    document.getElementById('diaperTime').value = new Date().toTimeString().slice(0, 5);
-    renderRecentDiapers();
-    renderTimelineIn('homeTimeline');
+  bindRecordAction('saveDiaper', async () => {
+    const fields = diaperFields('diaperType', 'diaperWeight');
+    if (!await addRecord('diaper', { ...fields, ts: getTodayWithTime('diaperTime') })) return;
+    document.getElementById('diaperWeight').value = '';
+    resetRecordTime('diaperTime');
   });
 
-  // Sueño
-  document.getElementById('saveSleepManual')?.addEventListener('click', async () => {
-    const startDate = document.getElementById('sleepDate').value;
-    const startTime = document.getElementById('sleepTimeStart').value;
-    const endDate = document.getElementById('sleepDateEnd').value;
-    const endTime = document.getElementById('sleepTimeEnd').value;
-    
-    if (!startDate || !startTime || !endDate || !endTime) {
-      alert('Completa todos los campos');
-      return;
-    }
-    
-    const start = new Date(`${startDate}T${startTime}`);
-    const end = new Date(`${endDate}T${endTime}`);
-    
-    if (end <= start) {
-      alert('La hora de fin debe ser mayor que la de inicio');
-      return;
-    }
-    
-    const min = Math.round((end - start) / 60000);
-    const record = { 
-      id: genId(), 
-      ts: start.toISOString(),
-      start: start.toISOString(),
-      end: end.toISOString(),
-      min 
-    };
-    state.sleep.unshift(record);
-    await saveRecord('sleep', record);
-    
-    const now = new Date();
-    document.getElementById('sleepDate').value = now.toISOString().slice(0, 10);
-    document.getElementById('sleepDateEnd').value = now.toISOString().slice(0, 10);
-    document.getElementById('sleepTimeStart').value = now.toTimeString().slice(0, 5);
-    document.getElementById('sleepTimeEnd').value = now.toTimeString().slice(0, 5);
-    
-    renderRecentSleep();
-    renderTimelineIn('homeTimeline');
+  bindRecordAction('saveSleepManual', async () => {
+    const start = getDateTime('sleepDate', 'sleepTimeStart');
+    const end = getDateTime('sleepDateEnd', 'sleepTimeEnd');
+    if (!await addRecord('sleep', sleepFields(start, end))) return;
+    resetRecordTime('sleepTimeStart', 'sleepDate');
+    resetRecordTime('sleepTimeEnd', 'sleepDateEnd');
   });
 
-  // Crecimiento
-  document.getElementById('saveGrowth')?.addEventListener('click', async () => {
-    const w = parseFloat(document.getElementById('growthWeight').value) || 0;
-    const h = parseFloat(document.getElementById('growthHeight').value) || 0;
-    if (w === 0 || h === 0) {
-      alert('Ingresa peso y talla');
-      return;
-    }
-    const ts = getDateTime('growthDate', 'growthTime');
-    const record = { id: genId(), ts, w, h };
-    state.growth.unshift(record);
-    await saveRecord('growth', record);
+  bindRecordAction('sleepTimerAction', toggleSleepTimer);
+  bindRecordAction('sleepTimerCancel', () => {
+    if (confirm('¿Descartar este cronómetro de sueño?')) clearSleepTimer(currentUser.uid);
+  });
+  window.addEventListener('storage', event => {
+    if (currentUser && (event.key === timerKey(currentUser.uid) || event.key === null)) renderSleepTimer();
+  });
+
+  bindRecordAction('saveGrowth', async () => {
+    const fields = growthFields('growthWeight', 'growthHeight');
+    if (!await addRecord('growth', { ...fields, ts: getDateTime('growthDate', 'growthTime') })) return;
     document.getElementById('growthWeight').value = '';
     document.getElementById('growthHeight').value = '';
-    renderGrowthHistory();
+    resetRecordTime('growthTime', 'growthDate');
   });
 
   document.getElementById('searchHistory')?.addEventListener('click', () => {
@@ -1417,7 +1441,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Save edit button
-  document.getElementById('saveEditBtn')?.addEventListener('click', saveEditedRecord);
+  bindRecordAction('saveEditBtn', saveEditedRecord);
   
   // Close modal on overlay click
   document.getElementById('editModal')?.addEventListener('click', (e) => {
