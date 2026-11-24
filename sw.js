@@ -1,47 +1,44 @@
-const CACHE_NAME = 'agenda-bebe-v18';
-const urlsToCache = [
+const CACHE_NAME = 'agenda-bebe-v19';
+const appFiles = [
   '/',
   '/index.html',
   '/app.js',
   '/manifest.json',
   '/icon-192.png',
-  '/icon-512.png'
+  '/icon-512.png',
+  '/vendor/firebase-10.7.1/firebase-app-compat.js',
+  '/vendor/firebase-10.7.1/firebase-auth-compat.js',
+  '/vendor/firebase-10.7.1/firebase-firestore-compat.js',
+  '/vendor/chart.js-4.6.2/chart.umd.min.js'
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const requests = appFiles.map(path => new Request(path, { cache: 'reload' }));
+    await cache.addAll(requests);
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.filter(name => name !== CACHE_NAME)
-          .map(name => caches.delete(name))
-      );
-    }).then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const names = await caches.keys();
+    const outdated = names.filter(name => name.startsWith('agenda-bebe-') && name !== CACHE_NAME);
+    await Promise.all(outdated.map(name => caches.delete(name)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        if (response) return response;
-        return fetch(event.request)
-          .then(response => {
-            if (!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME)
-              .then(cache => cache.put(event.request, responseToCache));
-            return response;
-          });
-      })
-  );
+  const request = event.request;
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== self.location.origin || !appFiles.includes(url.pathname)) {
+    return;
+  }
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const stored = await cache.match(url.pathname);
+    return stored || fetch(request);
+  })());
 });

@@ -19,13 +19,22 @@
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
   
+  <script>
+    const updateConnectionNotice = () => {
+      document.documentElement.toggleAttribute('data-offline', !navigator.onLine);
+    };
+    updateConnectionNotice();
+    window.addEventListener('online', updateConnectionNotice);
+    window.addEventListener('offline', updateConnectionNotice);
+  </script>
+
   <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="vendor/firebase-10.7.1/firebase-app-compat.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
+  <script src="vendor/firebase-10.7.1/firebase-auth-compat.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
+  <script src="vendor/firebase-10.7.1/firebase-firestore-compat.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
   
   <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="vendor/chart.js-4.6.2/chart.umd.min.js"></script>
   
   <style>
     :root {
@@ -123,6 +132,7 @@
       padding: 6px 12px; background: none; border: 0; cursor: pointer; 
       color: var(--muted); font-size: 10px; transition: color 0.2s;
     }
+    .app-container.needs-profile [data-view] { display: none; }
     .nav-btn.active { color: var(--btn); }
     .nav-btn svg { width: 22px; height: 22px; }
     
@@ -164,6 +174,10 @@
     /* Loading */
     .loading { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .spinner { width: 40px; height: 40px; border: 4px solid var(--borde); border-top-color: var(--btn); border-radius: 50%; animation: spin 1s linear infinite; }
+    .startup-error, .offline-login { display: none; }
+    .startup-failed .loading .spinner { display: none; }
+    .startup-failed .startup-error { display: block; margin: 16px; }
+    [data-offline] .offline-login { display: block; }
     @keyframes spin { to { transform: rotate(360deg); } }
     
     /* Tabs */
@@ -218,11 +232,16 @@
   <!-- Loading Screen -->
   <div class="loading" id="loadingScreen">
     <div class="spinner"></div>
+    <section class="card startup-error" role="alert">
+      <h2>No se pudo abrir la agenda</h2>
+      <p>Comprueba tu conexión y vuelve a intentarlo.</p>
+      <button type="button" class="btn mt-2" onclick="location.reload()">Reintentar</button>
+    </section>
   </div>
 
   <!-- Sync Indicator -->
-  <div class="sync-indicator" id="syncIndicator" style="display: none;">
-    <span id="syncText">Sincronizado</span>
+  <div class="sync-indicator" id="syncIndicator" role="status" style="display: none;">
+    <span id="syncText"></span>
   </div>
 
   <!-- App Container -->
@@ -397,6 +416,8 @@
             <input type="time" id="diaperTime" />
           </div>
         </div>
+        <label for="diaperWeight">Peso del pañal (g, opcional)</label>
+        <input type="number" min="0" step="any" id="diaperWeight" />
         <button class="btn btn-full mt-2" id="saveDiaper">💾 Guardar</button>
       </section>
       <section class="card">
@@ -405,10 +426,18 @@
       </section>
     </div>
 
-    <!-- Sleep View: Solo ingreso manual -->
+    <!-- Sleep View -->
     <div class="view" id="sleepView">
       <section class="card">
-        <h2>😴 Control de sueño</h2>
+        <h2>😴 Cronómetro de sueño</h2>
+        <p class="big text-center" id="sleepElapsed" role="timer" aria-label="Tiempo de sueño">00:00:00</p>
+        <div class="row mt-2">
+          <button class="btn" id="sleepTimerAction">Iniciar sueño</button>
+          <button class="btn-sec" id="sleepTimerCancel" style="display: none;">Cancelar cronómetro</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Registrar sueño manualmente</h2>
         <div class="row">
           <div>
             <label>Fecha inicio</label>
@@ -444,11 +473,11 @@
         <div class="row">
           <div>
             <label>Peso (kg)</label>
-            <input type="number" step="0.1" id="growthWeight" placeholder="0.0" />
+            <input type="number" step="any" min="0" id="growthWeight" placeholder="0.0" />
           </div>
           <div>
             <label>Talla (cm)</label>
-            <input type="number" id="growthHeight" placeholder="0" />
+            <input type="number" step="any" min="0" id="growthHeight" placeholder="0" />
           </div>
         </div>
         <div class="row mt-2">
@@ -550,37 +579,38 @@
     <footer style="text-align: center; padding: 20px 0; color: var(--muted); font-size: 12px;">
       Creado por Javi Design
     </footer>
-  </div>
 
-  <!-- Bottom Navigation (Mobile) -->
-  <nav class="bottom-nav" id="bottomNav" style="display: none;">
-    <div class="bottom-nav-inner">
-      <button class="nav-btn active" data-view="home">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L4 9v12h5v-7h6v7h5V9l-8-6z"/></svg>
-        <span>Inicio</span>
-      </button>
-      <button class="nav-btn" data-view="feeding">
-        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
-        <span>Comer</span>
-      </button>
-      <button class="nav-btn" data-view="diapers">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 4-3 8-4 11H8c-1-3-4-7-4-11z"/></svg>
-        <span>Pañal</span>
-      </button>
-      <button class="nav-btn" data-view="sleep">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-5 0-9 4-9 9s4 9 9 9c1 0 2-.7 2-1.5 0-.4-.2-.8-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H17c3 0 5-2 5-5 0-4-4-8-10-8z"/></svg>
-        <span>Dormir</span>
-      </button>
-      <button class="nav-btn" data-view="growth">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21V8l4-4 6 6 4-4 4 4v11H3z"/></svg>
-        <span>Crecer</span>
-      </button>
-    </div>
-  </nav>
+    <!-- Bottom Navigation (Mobile) -->
+    <nav class="bottom-nav" id="bottomNav" hidden>
+      <div class="bottom-nav-inner">
+        <button class="nav-btn active" data-view="home">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L4 9v12h5v-7h6v7h5V9l-8-6z"/></svg>
+          <span>Inicio</span>
+        </button>
+        <button class="nav-btn" data-view="feeding">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+          <span>Comer</span>
+        </button>
+        <button class="nav-btn" data-view="diapers">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 4-3 8-4 11H8c-1-3-4-7-4-11z"/></svg>
+          <span>Pañal</span>
+        </button>
+        <button class="nav-btn" data-view="sleep">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-5 0-9 4-9 9s4 9 9 9c1 0 2-.7 2-1.5 0-.4-.2-.8-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H17c3 0 5-2 5-5 0-4-4-8-10-8z"/></svg>
+          <span>Dormir</span>
+        </button>
+        <button class="nav-btn" data-view="growth">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21V8l4-4 6 6 4-4 4 4v11H3z"/></svg>
+          <span>Crecer</span>
+        </button>
+      </div>
+    </nav>
+  </div>
 
   <!-- Auth Container -->
   <div class="auth-container" id="authContainer" style="display: none;">
     <div class="auth-logo">👶</div>
+    <p class="card offline-login" role="status">Sin conexión. Conéctate para acceder a tu cuenta.</p>
     
     <!-- Login Form -->
     <div id="loginForm">
@@ -640,7 +670,7 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
   
   <!-- Edit Modal -->
   <div class="modal-overlay" id="editModal">
