@@ -20,7 +20,8 @@ const db = firebase.firestore();
 // APP STATE
 // ============================================
 let currentUser = null;
-let state = {
+const recordCollections = ['breast', 'mix', 'pump', 'diaper', 'sleep', 'growth'];
+const emptyState = () => ({
   profile: null,
   theme: 'rosa',
   dark: false,
@@ -30,7 +31,9 @@ let state = {
   diaper: [],
   sleep: [],
   growth: []
-};
+});
+let state = emptyState();
+let dataSession = null;
 
 // Current editing record
 let currentEditRecord = null;
@@ -95,14 +98,21 @@ const showError = (msg) => {
   console.error(msg);
 };
 
-const showSync = (syncing = false) => {
+const showSync = () => {
   const indicator = document.getElementById('syncIndicator');
-  const text = document.getElementById('syncText');
-  if (!indicator) return;
-  indicator.style.display = 'block';
-  indicator.classList.toggle('syncing', syncing);
-  text.textContent = syncing ? '🔄 Sincronizando...' : '✓ Sincronizado';
-  if (!syncing) setTimeout(() => indicator.style.display = 'none', 2000);
+  let message = '';
+  if (dataSession) {
+    if (!navigator.onLine || dataSession.cached.size) {
+      message = 'Sin conexión con Firebase. Los datos pueden estar desactualizados.';
+    } else if (dataSession.failed.size) {
+      message = 'No se pudieron sincronizar todos los datos. Recarga para reintentar.';
+    } else if (dataSession.waiting.size || dataSession.pending) {
+      message = '🔄 Sincronizando…';
+    }
+  }
+  indicator.style.display = message ? 'block' : 'none';
+  indicator.classList.toggle('syncing', !!dataSession?.pending);
+  document.getElementById('syncText').textContent = message;
 };
 
 // ============================================
@@ -120,96 +130,150 @@ const applyTheme = () => {
   if (darkBtn3) darkBtn3.textContent = state.dark ? '☀️ Modo claro' : '🌙 Modo oscuro';
 };
 
-const saveTheme = async () => {
-  if (currentUser) {
-    try {
-      showSync(true);
-      await db.collection('users').doc(currentUser.uid).collection('settings').doc('theme').set({
-        theme: state.theme,
-        dark: state.dark
-      });
-      showSync(false);
-    } catch (e) {
-      console.error('Error saving theme:', e);
-    }
+const saveTheme = async (change) => {
+  if (await writeUserData('guardar el tema', userRef => userRef.collection('settings').doc('theme').set(change, { merge: true }))) {
+    Object.assign(state, change);
+    applyTheme();
   }
 };
 
 // ============================================
 // DATA SYNC
 // ============================================
-const loadUserData = async (user) => {
-  showSync(true);
-  const uid = user.uid;
-  
-  try {
-    const profileDoc = await db.collection('users').doc(uid).collection('profile').doc('baby').get();
-    if (profileDoc.exists) state.profile = profileDoc.data();
+const refreshRecordViews = () => {
+  if (document.querySelector('#homeView.active')) renderHome();
+  renderRecentFeeding();
+  renderRecentDiapers();
+  renderRecentSleep();
+  renderGrowthHistory();
+  if (document.querySelector('#historyView.active')) {
+    renderMonthlyHistory();
+    renderMonthlyChart();
+    renderDailyHistory(document.getElementById('historyResultsCard').dataset.date);
+  }
+};
 
-    const themeDoc = await db.collection('users').doc(uid).collection('settings').doc('theme').get();
-    if (themeDoc.exists) {
-      state.theme = themeDoc.data().theme || 'rosa';
-      state.dark = themeDoc.data().dark || false;
-      applyTheme();
+const subscribeToUserData = (user, openApp) => {
+  const session = {
+    ref: db.collection('users').doc(user.uid),
+    unsubscribe: [],
+    waiting: new Set(['profile', 'settings', ...recordCollections]),
+    failed: new Set(),
+    cached: new Set(),
+    pending: 0,
+    deleting: false,
+    opened: false,
+    refreshTimer: null
+  };
+  dataSession = session;
+  const reveal = () => {
+    if (dataSession !== session || session.opened) return;
+    session.opened = true;
+    openApp();
+  };
+  session.loadTimer = setTimeout(reveal, 8000);
+
+  const refresh = (hadProfile) => {
+    if (!session.opened) {
+      if (!session.waiting.size || !navigator.onLine) reveal();
+      return;
     }
+    if (hadProfile !== !!state.profile) {
+      if (!state.profile) resetProfileForm();
+      updateUI();
+    }
+    clearTimeout(session.refreshTimer);
+    session.refreshTimer = setTimeout(refreshRecordViews, 0);
+  };
 
-    const loadCollection = async (name) => {
-      try {
-        const snapshot = await db.collection('users').doc(uid).collection(name).orderBy('ts', 'desc').limit(100).get();
-        return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      } catch (e) {
-        console.error(`Error loading ${name}:`, e);
-        return [];
+  const listen = (name, ref, apply) => {
+    const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, snapshot => {
+      if (dataSession !== session) return;
+      if (snapshot.metadata.fromCache) {
+        if (!session.waiting.has(name) || !navigator.onLine) session.cached.add(name);
+        showSync();
+        if (!navigator.onLine) reveal();
+        return;
       }
-    };
+      if (snapshot.metadata.hasPendingWrites) return;
+      session.cached.delete(name);
+      session.waiting.delete(name);
+      const hadProfile = !!state.profile;
+      apply(snapshot);
+      showSync();
+      refresh(hadProfile);
+    }, error => {
+      if (dataSession !== session) return;
+      console.error('Error de sincronización de ' + name, error);
+      session.waiting.delete(name);
+      session.failed.add(name);
+      showSync();
+      if (!session.waiting.size) reveal();
+    });
+    session.unsubscribe.push(unsubscribe);
+  };
 
-    state.breast = await loadCollection('breast');
-    state.mix = await loadCollection('mix');
-    state.pump = await loadCollection('pump');
-    state.diaper = await loadCollection('diaper');
-    state.sleep = await loadCollection('sleep');
-    state.growth = await loadCollection('growth');
-
-    showSync(false);
-  } catch (e) {
-    console.error('Error loading user data:', e);
-    showError('Error al cargar datos: ' + e.message);
-    showSync(false);
+  listen('profile', session.ref.collection('profile').doc('baby'), snapshot => {
+    state.profile = snapshot.exists ? snapshot.data() : null;
+  });
+  listen('settings', session.ref.collection('settings').doc('theme'), snapshot => {
+    const theme = snapshot.data();
+    state.theme = theme?.theme || 'rosa';
+    state.dark = theme?.dark || false;
+    applyTheme();
+  });
+  for (const name of recordCollections) {
+    listen(name, session.ref.collection(name), snapshot => {
+      state[name] = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    });
   }
+  showSync();
 };
 
-const saveRecord = async (collection, record) => {
-  if (!currentUser) return;
+const stopDataSession = () => {
+  if (!dataSession) return;
+  const session = dataSession;
+  dataSession = null;
+  clearTimeout(session.loadTimer);
+  clearTimeout(session.refreshTimer);
+  session.unsubscribe.forEach(unsubscribe => unsubscribe());
+};
+
+const writeUserData = async (action, operation) => {
+  const session = dataSession;
+  if (!session) return false;
+  if (!navigator.onLine || session.cached.size) {
+    showError('Conéctate a Internet para ' + action + '.');
+    return false;
+  }
+  if (session.waiting.size || session.failed.size) {
+    showError('Espera a que se carguen los datos o recarga la página para ' + action + '.');
+    return false;
+  }
+  if (session.deleting) return false;
+  session.pending++;
+  showSync();
   try {
-    showSync(true);
-    await db.collection('users').doc(currentUser.uid).collection(collection).doc(record.id).set(record);
-    showSync(false);
-  } catch (e) {
-    showError('Error al guardar: ' + e.message);
+    await operation(session.ref);
+    return session === dataSession;
+  } catch (error) {
+    if (session === dataSession) showError('No se pudo ' + action + ': ' + error.message);
+    return false;
+  } finally {
+    session.pending--;
+    if (session === dataSession) showSync();
   }
 };
 
-const updateRecordToDB = async (collection, id, data) => {
-  if (!currentUser) return;
-  try {
-    showSync(true);
-    await db.collection('users').doc(currentUser.uid).collection(collection).doc(id).update(data);
-    showSync(false);
-  } catch (e) {
-    showError('Error al actualizar: ' + e.message);
-  }
-};
-
-const deleteRecordFromDB = async (collection, id) => {
-  if (!currentUser) return;
-  try {
-    showSync(true);
-    await db.collection('users').doc(currentUser.uid).collection(collection).doc(id).delete();
-    showSync(false);
-  } catch (e) {
-    showError('Error al eliminar: ' + e.message);
-  }
-};
+const saveRecord = (collection, record) => writeUserData(
+  'guardar el registro', userRef => userRef.collection(collection).doc(record.id).set(record)
+);
+const updateRecordToDB = (collection, id, data) => writeUserData(
+  'actualizar el registro', userRef => userRef.collection(collection).doc(id).update(data)
+);
+const deleteRecordFromDB = (collection, id) => writeUserData(
+  'eliminar el registro', userRef => userRef.collection(collection).doc(id).delete()
+);
 
 // ============================================
 // EDIT MODAL
@@ -974,62 +1038,48 @@ window.editRecord = (collection, id) => {
 // Delete record
 window.delRecord = async (collection, id) => {
   if (!confirm('¿Eliminar este registro?')) return;
-  state[collection] = state[collection].filter(r => r.id !== id);
-  await deleteRecordFromDB(collection, id);
-  updateUI();
-  renderRecentFeeding();
-  renderRecentDiapers();
-  renderRecentSleep();
-  renderGrowthHistory();
-  renderMonthlyHistory();
+  if (await deleteRecordFromDB(collection, id)) {
+    state[collection] = state[collection].filter(record => record.id !== id);
+    refreshRecordViews();
+  }
 };
 
 // ============================================
 // EVENT HANDLERS
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('App starting...');
-  
-  // Auth state observer
-  auth.onAuthStateChanged(async (user) => {
-    console.log('Auth state changed:', user ? user.email : 'no user');
+  window.addEventListener('online', showSync);
+  window.addEventListener('offline', showSync);
+
+  auth.onAuthStateChanged(user => {
+    stopDataSession();
+    currentUser = user;
+    state = emptyState();
     const loadingScreen = document.getElementById('loadingScreen');
-    if (loadingScreen) loadingScreen.style.display = 'flex';
-    
-    if (user) {
-      currentUser = user;
-      const userEmail = document.getElementById('userEmail');
-      if (userEmail) userEmail.textContent = user.email;
-      
-      await loadUserData(user);
-      
-      const authContainer = document.getElementById('authContainer');
-      const appContainer = document.getElementById('appContainer');
-      if (authContainer) authContainer.style.display = 'none';
-      if (appContainer) appContainer.style.display = 'block';
-      applyTheme();
+    const authContainer = document.getElementById('authContainer');
+    const appContainer = document.getElementById('appContainer');
+    appContainer.style.display = 'none';
+    appContainer.inert = false;
+    authContainer.style.display = user ? 'none' : 'block';
+    loadingScreen.style.display = user ? 'flex' : 'none';
+    document.getElementById('userEmail').textContent = user?.email || '';
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('registerPassword').value = '';
+    document.getElementById('registerPasswordConfirm').value = '';
+    document.getElementById('loginForm').style.display = 'block';
+    document.getElementById('registerForm').style.display = 'none';
+    document.getElementById('resetForm').style.display = 'none';
+    resetProfileForm();
+    applyTheme();
+    renderSleepTimer();
+    showSync();
+    if (!user) return;
+
+    subscribeToUserData(user, () => {
+      appContainer.style.display = 'block';
+      loadingScreen.style.display = 'none';
       updateUI();
-      
-      // Initialize time inputs
-      const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 5);
-      const today = now.toISOString().slice(0, 10);
-      
-      const timeInputs = ['breastTime', 'mixTime', 'pumpTime', 'diaperTime', 'sleepTimeStart', 'sleepTimeEnd', 'growthTime'];
-      timeInputs.forEach(id => { const el = document.getElementById(id); if (el) el.value = currentTime; });
-      
-      const dateInputs = ['sleepDate', 'sleepDateEnd', 'growthDate'];
-      dateInputs.forEach(id => { const el = document.getElementById(id); if (el) el.value = today; });
-    } else {
-      currentUser = null;
-      state = { profile: null, theme: 'rosa', dark: false, breast: [], mix: [], pump: [], diaper: [], sleep: [], growth: [] };
-      const appContainer = document.getElementById('appContainer');
-      const authContainer = document.getElementById('authContainer');
-      if (appContainer) appContainer.style.display = 'none';
-      if (authContainer) authContainer.style.display = 'block';
-    }
-    
-    if (loadingScreen) loadingScreen.style.display = 'none';
+    });
   });
 
   // Auth forms
@@ -1134,18 +1184,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Theme
   document.querySelectorAll('.sw').forEach(sw => {
     sw.addEventListener('click', async () => {
-      state.theme = sw.dataset.theme;
-      applyTheme();
-      await saveTheme();
+      await saveTheme({ theme: sw.dataset.theme });
     });
   });
 
   // Dark mode
-  const toggleDark = async () => {
-    state.dark = !state.dark;
-    applyTheme();
-    await saveTheme();
-  };
+  const toggleDark = () => saveTheme({ dark: !state.dark });
   document.getElementById('darkBtn')?.addEventListener('click', toggleDark);
   document.getElementById('darkBtn2')?.addEventListener('click', toggleDark);
   document.getElementById('darkBtn3')?.addEventListener('click', toggleDark);
@@ -1391,28 +1435,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Borrar datos
   document.getElementById('clearData')?.addEventListener('click', async () => {
+    const session = dataSession;
+    if (!session || session.deleting) return;
+    if (session.pending) {
+      alert('Espera a que se guarden los cambios antes de borrar tus datos.');
+      return;
+    }
     if (!confirm('¿Estás seguro? Se borrarán TODOS tus datos. Esta acción no se puede deshacer.')) return;
     if (!confirm('¿REALMENTE quieres borrar todo?')) return;
-    
-    try {
-      showSync(true);
-      const collections = ['breast', 'mix', 'pump', 'diaper', 'sleep', 'growth', 'profile'];
-      
-      for (const col of collections) {
-        const snapshot = await db.collection('users').doc(currentUser.uid).collection(col).get();
-        const batch = db.batch();
-        snapshot.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
+    const appContainer = document.getElementById('appContainer');
+    const uid = currentUser.uid;
+
+    const deleted = await writeUserData('borrar todos los datos', async userRef => {
+      session.deleting = true;
+      appContainer.inert = true;
+      let completed = 0;
+      try {
+        const collections = [...recordCollections, 'profile', 'settings'];
+        const snapshots = await Promise.all(collections.map(name =>
+          userRef.collection(name).get({ source: 'server' })
+        ));
+        const documents = snapshots.flatMap(snapshot => snapshot.docs);
+        for (let offset = 0; offset < documents.length; offset += 450) {
+          if (dataSession !== session) return;
+          const batch = db.batch();
+          documents.slice(offset, offset + 450).forEach(doc => batch.delete(doc.ref));
+          await batch.commit();
+          completed += Math.min(450, documents.length - offset);
+        }
+      } catch (error) {
+        if (completed) throw new Error('Se eliminaron parte de los datos. Repite el borrado para eliminar los restantes. ' + error.message);
+        throw error;
+      } finally {
+        session.deleting = false;
+        if (dataSession === session) appContainer.inert = false;
       }
-      
-      state = { profile: null, theme: state.theme, dark: state.dark, breast: [], mix: [], pump: [], diaper: [], sleep: [], growth: [] };
-      showSync(false);
-      updateUI();
-      alert('Datos eliminados correctamente');
-    } catch (e) {
-      showError('Error al borrar datos: ' + e.message);
-      showSync(false);
-    }
+    });
+    if (!deleted) return;
+
+    clearSleepTimer(uid);
+    resetProfileForm();
+    renderSleepTimer();
+    updateUI();
+    alert('Datos eliminados correctamente');
   });
 });
 
