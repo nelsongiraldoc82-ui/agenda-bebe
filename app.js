@@ -134,6 +134,8 @@ const showSync = () => {
       message = 'Sin conexión con Firebase. Los datos pueden estar desactualizados.';
     } else if (dataSession.failed.size) {
       message = 'No se pudieron sincronizar todos los datos. Recarga para reintentar.';
+    } else if (dataSession.opened && dataSession.waiting.size) {
+      message = 'Esperando la conexión con Firebase para cargar tus datos.';
     } else if (dataSession.waiting.size || dataSession.pending) {
       message = '🔄 Sincronizando…';
     }
@@ -197,6 +199,7 @@ const subscribeToUserData = (user, openApp) => {
   const reveal = () => {
     if (dataSession !== session || session.opened) return;
     session.opened = true;
+    showSync();
     openApp();
   };
   session.loadTimer = setTimeout(reveal, 8000);
@@ -1012,7 +1015,9 @@ const resetProfileForm = () => {
   const lists = ['homeView', 'recentFeeding', 'recentDiapers', 'recentSleep', 'growthHistory',
     'monthlyHistoryContent', 'historyResults', 'editModalContent'];
   lists.forEach(id => document.getElementById(id).replaceChildren());
-  document.getElementById('historyResultsCard').style.display = 'none';
+  const historyCard = document.getElementById('historyResultsCard');
+  historyCard.style.display = 'none';
+  delete historyCard.dataset.date;
   document.getElementById('historyDateTitle').textContent = 'Registros del día';
   Object.values(chartInstances).forEach(chart => chart.destroy());
   chartInstances = {};
@@ -1358,7 +1363,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Profile
-  document.getElementById('saveProfile')?.addEventListener('click', async () => {
+  bindRecordAction('saveProfile', async () => {
     const name = document.getElementById('babyName').value.trim();
     const sex = document.getElementById('babySex').value;
     const birth = document.getElementById('babyBirth').value;
@@ -1368,7 +1373,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
-    if (birth > localDateInput()) {
+    if (new Date(birth + 'T00:00:00') > new Date()) {
       alert('La fecha de nacimiento no puede ser futura');
       return;
     }
@@ -1467,9 +1472,10 @@ document.addEventListener('DOMContentLoaded', () => {
       let completed = 0;
       try {
         const collections = [...recordCollections, 'profile', 'settings'];
-        const snapshots = await Promise.all(collections.map(name =>
+        const readCollections = () => Promise.all(collections.map(name =>
           userRef.collection(name).get({ source: 'server' })
         ));
+        const snapshots = await readCollections();
         const documents = snapshots.flatMap(snapshot => snapshot.docs);
         for (let offset = 0; offset < documents.length; offset += 450) {
           if (dataSession !== session) return;
@@ -1478,8 +1484,11 @@ document.addEventListener('DOMContentLoaded', () => {
           await batch.commit();
           completed += Math.min(450, documents.length - offset);
         }
+        if ((await readCollections()).some(snapshot => !snapshot.empty)) {
+          throw new Error('Todavía quedan datos en la cuenta. Repite el borrado.');
+        }
       } catch (error) {
-        if (completed) throw new Error('Se eliminaron parte de los datos. Repite el borrado para eliminar los restantes. ' + error.message);
+        if (completed) throw new Error('No se pudo confirmar el borrado completo. ' + error.message);
         throw error;
       } finally {
         session.deleting = false;
