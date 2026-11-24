@@ -70,27 +70,55 @@ const formatDateTime = (ts) => {
 
 const getAge = (birth) => {
   if (!birth) return 0;
-  const b = new Date(birth), n = new Date();
+  const b = new Date(birth + 'T00:00:00'), n = new Date();
   return Math.max(0, (n.getFullYear() - b.getFullYear()) * 12 + (n.getMonth() - b.getMonth()) - (n.getDate() < b.getDate() ? 1 : 0));
 };
 
-const is24h = (ts) => Date.now() - new Date(ts).getTime() <= 24 * 3600000;
-
-// Mes actual
-const isCurrentMonth = (ts) => {
-  const date = new Date(ts);
-  const now = new Date();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-  return date >= firstDay && date <= lastDay;
+const localDateInput = (date = new Date()) => {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 };
 
-const getMonthRange = () => {
-  const now = new Date();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  return { firstDay, lastDay, monthName: monthNames[now.getMonth()], year: now.getFullYear() };
+// All reporting periods include the start and exclude the end.
+const withinPeriod = (ts, start, end) => {
+  const time = new Date(ts).getTime();
+  return time >= start && time < end;
+};
+
+const currentMonthStart = (now) => new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+const monthLabel = (date) => date.toLocaleDateString('es-ES', { month: 'long' });
+
+const sleepMinutesInPeriod = (record, start, end) => {
+  const sleepStart = new Date(record.start || record.ts).getTime();
+  const sleepEnd = record.end ? new Date(record.end).getTime() : sleepStart + Number(record.min) * 60000;
+  if (!Number.isFinite(sleepStart) || !Number.isFinite(sleepEnd)) return 0;
+  return Math.max(0, Math.min(sleepEnd, end) - Math.max(sleepStart, start)) / 60000;
+};
+
+const formatDuration = (minutes) => {
+  const rounded = Math.round(minutes);
+  const hours = Math.floor(rounded / 60);
+  const rest = rounded % 60;
+  if (!hours) return `${rest} min`;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+};
+
+const summarizePeriod = (start, end) => {
+  const inPeriod = (r) => withinPeriod(r.ts, start, end);
+  const mix = state.mix.filter(inPeriod);
+  const pump = state.pump.filter(inPeriod);
+  const pumpLeft = pump.reduce((sum, r) => sum + Number(r.l || 0), 0);
+  const pumpRight = pump.reduce((sum, r) => sum + Number(r.r || 0), 0);
+  const mixedOz = mix.reduce((sum, r) => sum + Number(r.lm || 0) + Number(r.lf || 0), 0);
+  return {
+    breast: state.breast.filter(inPeriod).length,
+    diapers: state.diaper.filter(inPeriod).length,
+    ounces: mixedOz + pumpLeft + pumpRight,
+    pumpLeft,
+    pumpRight,
+    sleep: state.sleep.reduce((sum, r) => sum + sleepMinutesInPeriod(r, start, end), 0)
+  };
 };
 
 const showError = (msg) => {
@@ -536,16 +564,11 @@ const updateUI = () => {
 
 const renderHome = () => {
   const age = getAge(state.profile?.birth);
-  const recentBreast = state.breast.filter(r => is24h(r.ts));
-  const recentMix = state.mix.filter(r => is24h(r.ts));
-  const recentPump = state.pump.filter(r => is24h(r.ts));
-  const recentDiaper = state.diaper.filter(r => is24h(r.ts));
-  const recentSleep = state.sleep.filter(r => is24h(r.ts || r.start));
-  
-  const totalBreast = recentBreast.length;
-  const totalOz = recentMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0);
-  const totalPumpOz = recentPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
-  const totalSleep = recentSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
+  const now = new Date();
+  const end = now.getTime() + 1;
+  const today = summarizePeriod(now.getTime() - 24 * 3600000, end);
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+  const week = summarizePeriod(weekStart.getTime(), end);
 
   const homeView = document.getElementById('homeView');
   if (!homeView) return;
@@ -555,7 +578,7 @@ const renderHome = () => {
       <div style="display: flex; align-items: center; gap: 12px;">
         <div style="font-size: 40px;">${state.profile?.sex === 'niño' ? '👦' : '👧'}</div>
         <div>
-          <div style="font-weight: 600; font-size: 18px;">${state.profile?.name || 'Bebé'}</div>
+          <div id="homeBabyName" style="font-weight: 600; font-size: 18px;"></div>
           <div class="muted">${age} ${age === 1 ? 'mes' : 'meses'} • ${state.profile?.sex || ''}</div>
         </div>
         <span style="flex: 1;"></span>
@@ -575,21 +598,30 @@ const renderHome = () => {
       <h3>Resumen 24h</h3>
       <div class="row">
         <div style="text-align: center; padding: 10px; background: var(--suave); border-radius: 10px;">
-          <div class="big">${totalBreast}</div>
+          <div class="big">${today.breast}</div>
           <div class="muted">pechos</div>
         </div>
         <div style="text-align: center; padding: 10px; background: var(--suave); border-radius: 10px;">
-          <div class="big">${(totalOz + totalPumpOz).toFixed(1)}</div>
+          <div class="big">${today.ounces.toFixed(1)}</div>
           <div class="muted">oz leche</div>
         </div>
         <div style="text-align: center; padding: 10px; background: var(--suave); border-radius: 10px;">
-          <div class="big">${recentDiaper.length}</div>
+          <div class="big">${today.diapers}</div>
           <div class="muted">pañales</div>
         </div>
         <div style="text-align: center; padding: 10px; background: var(--suave); border-radius: 10px;">
-          <div class="big">${totalSleep.toFixed(1)}</div>
+          <div class="big">${(today.sleep / 60).toFixed(1)}</div>
           <div class="muted">horas</div>
         </div>
+      </div>
+    </section>
+    <section class="card">
+      <h3>Resumen semanal · últimos 7 días</h3>
+      <div class="summary-grid" id="weeklySummary">
+        ${summaryItem('🍼', week.breast, 'pechos')}
+        ${summaryItem('🥛', week.ounces.toFixed(1), 'oz leche')}
+        ${summaryItem('👶', week.diapers, 'pañales')}
+        ${summaryItem('😴', formatDuration(week.sleep), 'sueño total')}
       </div>
     </section>
     <section class="card">
@@ -602,6 +634,7 @@ const renderHome = () => {
     </section>
   `;
   
+  document.getElementById('homeBabyName').textContent = state.profile?.name || 'Bebé';
   renderTimelineIn('homeTimeline');
   renderMonthlySummary();
 };
@@ -609,84 +642,38 @@ const renderHome = () => {
 // ============================================
 // RESUMEN MENSUAL
 // ============================================
+const summaryItem = (icon, value, label) => `
+  <div class="summary-item">
+    <span class="summary-icon">${icon}</span>
+    <div class="summary-data">
+      <div class="summary-value">${value}</div>
+      <div class="summary-label">${label}</div>
+    </div>
+  </div>`;
+
 const renderMonthlySummary = () => {
   const container = document.getElementById('monthlySummary');
   if (!container) return;
-  
-  const monthBreast = state.breast.filter(r => isCurrentMonth(r.ts));
-  const monthMix = state.mix.filter(r => isCurrentMonth(r.ts));
-  const monthPump = state.pump.filter(r => isCurrentMonth(r.ts));
-  const monthDiaper = state.diaper.filter(r => isCurrentMonth(r.ts));
-  const monthSleep = state.sleep.filter(r => isCurrentMonth(r.ts || r.start));
-  const monthGrowth = state.growth.filter(r => isCurrentMonth(r.ts));
-  
-  const totalOz = monthMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0);
-  const totalPumpOz = monthPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
-  const totalPumpL = monthPump.reduce((s, r) => s + (r.l || 0), 0);
-  const totalPumpR = monthPump.reduce((s, r) => s + (r.r || 0), 0);
-  const totalSleep = monthSleep.reduce((s, r) => s + (r.min || 0), 0);
-  
-  const monthRange = getMonthRange();
+
   const now = new Date();
-  const daysInMonth = now.getDate();
-  
-  const lastWeight = monthGrowth.length > 0 ? monthGrowth[0].w : null;
-  const lastHeight = monthGrowth.length > 0 ? monthGrowth[0].h : null;
-  
+  const start = currentMonthStart(now);
+  const end = now.getTime() + 1;
+  const month = summarizePeriod(start, end);
+  const latest = state.growth.filter(r => withinPeriod(r.ts, start, end))
+    .sort((a, b) => new Date(b.ts) - new Date(a.ts))[0];
+
   container.innerHTML = `
-    <div class="muted text-center mb-2" style="font-size: 11px;">📅 ${monthRange.monthName} ${monthRange.year}</div>
+    <div class="muted text-center mb-2">📅 ${monthLabel(now)} ${now.getFullYear()}</div>
     <div class="summary-grid">
-      <div class="summary-item">
-        <span class="summary-icon">🍼</span>
-        <div class="summary-data">
-          <div class="summary-value">${monthBreast.length}</div>
-          <div class="summary-label">pechos</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">🥛</span>
-        <div class="summary-data">
-          <div class="summary-value">${(totalOz + totalPumpOz).toFixed(0)}</div>
-          <div class="summary-label">oz total</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">💧</span>
-        <div class="summary-data">
-          <div class="summary-value">${totalPumpL.toFixed(1)}</div>
-          <div class="summary-label">oz izq</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">💧</span>
-        <div class="summary-data">
-          <div class="summary-value">${totalPumpR.toFixed(1)}</div>
-          <div class="summary-label">oz der</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">👶</span>
-        <div class="summary-data">
-          <div class="summary-value">${monthDiaper.length}</div>
-          <div class="summary-label">pañales</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">😴</span>
-        <div class="summary-data">
-          <div class="summary-value">${(totalSleep / 60).toFixed(0)}h</div>
-          <div class="summary-label">sueño total</div>
-        </div>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">📏</span>
-        <div class="summary-data">
-          <div class="summary-value">${lastWeight ? lastWeight + 'kg' : '-'}</div>
-          <div class="summary-label">peso</div>
-        </div>
-      </div>
+      ${summaryItem('🍼', month.breast, 'pechos')}
+      ${summaryItem('🥛', month.ounces.toFixed(1), 'oz total')}
+      ${summaryItem('💧', month.pumpLeft.toFixed(1), 'oz izq')}
+      ${summaryItem('💧', month.pumpRight.toFixed(1), 'oz der')}
+      ${summaryItem('👶', month.diapers, 'pañales')}
+      ${summaryItem('😴', formatDuration(month.sleep), 'sueño total')}
+      ${summaryItem('📏', latest?.w ? Number(latest.w) + 'kg' : '-', 'peso')}
     </div>
-    ${lastHeight ? `<div class="muted text-center mt-2">Talla actual: ${lastHeight} cm</div>` : ''}
+    ${latest?.h ? `<div class="muted text-center mt-2">Talla actual: ${Number(latest.h)} cm</div>` : ''}
   `;
 };
 
@@ -697,12 +684,21 @@ const renderTimelineIn = (containerId) => {
   const container = document.getElementById(containerId);
   if (!container) return;
 
+  const now = Date.now();
+  const windowStart = now - 24 * 3600000;
+  const is24h = (ts) => withinPeriod(ts, windowStart, now + 1);
   const events = [];
   state.breast.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'breast', ts: r.ts, title: `Pecho` }));
   state.mix.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'mix', ts: r.ts, title: `Mixta ${r.lm}+${r.lf} oz` }));
   state.pump.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'pump', ts: r.ts, title: `Extracción ${r.l}+${r.r} oz` }));
   state.diaper.filter(r => is24h(r.ts)).forEach(r => events.push({ type: 'diaper', ts: r.ts, title: `Pañal ${r.type}` }));
-  state.sleep.filter(r => is24h(r.ts || r.start)).forEach(r => events.push({ type: 'sleep', ts: r.ts || r.start, title: `Sueño ${Math.round(r.min/60)}h` }));
+  state.sleep.forEach(record => {
+    const minutes = sleepMinutesInPeriod(record, windowStart, now + 1);
+    if (minutes > 0) {
+      const ts = Math.max(new Date(record.start || record.ts).getTime(), windowStart);
+      events.push({ type: 'sleep', ts, title: `Sueño ${formatDuration(minutes)}` });
+    }
+  });
   events.sort((a, b) => new Date(b.ts) - new Date(a.ts));
 
   if (events.length === 0) {
@@ -710,19 +706,15 @@ const renderTimelineIn = (containerId) => {
     return;
   }
 
-  const now = new Date();
-  const start = new Date(now.getTime() - 23 * 3600000);
+  const start = new Date(windowStart);
   start.setMinutes(0, 0, 0);
-
   const hours = [];
-  for (let i = 0; i < 24; i++) {
-    hours.push({ time: new Date(start.getTime() + i * 3600000), events: [] });
+  for (let time = start.getTime(); time <= now; time += 3600000) {
+    hours.push({ time: new Date(time), events: [] });
   }
-
-  events.forEach(e => {
-    const et = new Date(e.ts);
-    const hourIndex = Math.floor((et - start) / 3600000);
-    if (hourIndex >= 0 && hourIndex < 24) hours[hourIndex].events.push(e);
+  events.forEach(event => {
+    const hourIndex = Math.floor((new Date(event.ts) - start) / 3600000);
+    hours[hourIndex].events.push(event);
   });
 
   const getIcon = (type) => ({ breast: '🍼', mix: '🥛', pump: '💧', diaper: '👶', sleep: '😴' }[type] || '•');
@@ -821,29 +813,8 @@ let currentHistoryTab = 'feeding';
 // Chart instances
 let chartInstances = {};
 
-// Check if date is in previous month (same days as current month)
-const isPreviousMonthSameDays = (ts) => {
-  const date = new Date(ts);
-  const now = new Date();
-  const currentDay = now.getDate();
-  
-  // First X days of previous month
-  const firstDayPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastDayToCompare = new Date(now.getFullYear(), now.getMonth() - 1, currentDay, 23, 59, 59, 999);
-  
-  return date >= firstDayPrevMonth && date <= lastDayToCompare;
-};
+const createDoughnutChart = (canvasId, label, prevValue, currentValue, labels) => {
 
-// Get previous month name
-const getPreviousMonthName = () => {
-  const now = new Date();
-  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-  return monthNames[prevMonth];
-};
-
-// Create a single doughnut chart
-const createDoughnutChart = (canvasId, label, prevValue, currentValue, prevMonthName, currentDay) => {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   
@@ -853,12 +824,11 @@ const createDoughnutChart = (canvasId, label, prevValue, currentValue, prevMonth
   }
   
   const ctx = canvas.getContext('2d');
-  const currentMonthName = getMonthRange().monthName;
   
   chartInstances[canvasId] = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: [`${prevMonthName} (1-${currentDay})`, `${currentMonthName} (1-${currentDay})`],
+      labels,
       datasets: [{
         data: [prevValue, currentValue],
         backgroundColor: ['rgba(255, 111, 168, 0.8)', 'rgba(127, 98, 255, 0.8)'],
@@ -893,46 +863,38 @@ const createDoughnutChart = (canvasId, label, prevValue, currentValue, prevMonth
 
 // Render monthly comparison charts
 const renderMonthlyChart = () => {
-  // Current month data
-  const currentBreast = state.breast.filter(r => isCurrentMonth(r.ts)).length;
-  const currentMix = state.mix.filter(r => isCurrentMonth(r.ts));
-  const currentPump = state.pump.filter(r => isCurrentMonth(r.ts));
-  const currentOz = currentMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0) + 
-                    currentPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
-  const currentDiaper = state.diaper.filter(r => isCurrentMonth(r.ts)).length;
-  const currentSleep = state.sleep.filter(r => isCurrentMonth(r.ts || r.start));
-  const currentSleepHours = currentSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
-  
-  // Previous month data (same days)
-  const prevBreast = state.breast.filter(r => isPreviousMonthSameDays(r.ts)).length;
-  const prevMix = state.mix.filter(r => isPreviousMonthSameDays(r.ts));
-  const prevPump = state.pump.filter(r => isPreviousMonthSameDays(r.ts));
-  const prevOz = prevMix.reduce((s, r) => s + (r.lm || 0) + (r.lf || 0), 0) + 
-                 prevPump.reduce((s, r) => s + (r.l || 0) + (r.r || 0), 0);
-  const prevDiaper = state.diaper.filter(r => isPreviousMonthSameDays(r.ts)).length;
-  const prevSleep = state.sleep.filter(r => isPreviousMonthSameDays(r.ts || r.start));
-  const prevSleepHours = prevSleep.reduce((s, r) => s + (r.min || 0), 0) / 60;
-  
-  // Get current day for label
-  const currentDay = new Date().getDate();
-  const prevMonthName = getPreviousMonthName();
-  
-  // Create doughnut charts with updated labels
-  createDoughnutChart('chartBreast', '🍼 Pechos', prevBreast || 0, currentBreast || 0, prevMonthName, currentDay);
-  createDoughnutChart('chartOz', '🥛 Onzas', prevOz || 0, currentOz || 0, prevMonthName, currentDay);
-  createDoughnutChart('chartDiaper', '👶 Pañales', prevDiaper || 0, currentDiaper || 0, prevMonthName, currentDay);
-  createDoughnutChart('chartSleep', '😴 Horas', prevSleepHours || 0, currentSleepHours || 0, prevMonthName, currentDay);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const start = currentMonthStart(now);
+  const previousStart = new Date(year, month - 1, 1);
+  const daysInPreviousMonth = new Date(year, month, 0).getDate();
+  const previousDay = Math.min(now.getDate(), daysInPreviousMonth);
+  const previousEnd = now.getDate() > daysInPreviousMonth ? start :
+    new Date(year, month - 1, previousDay, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds()).getTime() + 1;
+  const current = summarizePeriod(start, now.getTime() + 1);
+  const previous = summarizePeriod(previousStart.getTime(), previousEnd);
+  const labels = [`${monthLabel(previousStart)} (1-${previousDay})`, `${monthLabel(now)} (1-${now.getDate()})`];
+
+  createDoughnutChart('chartBreast', '🍼 Pechos', previous.breast, current.breast, labels);
+  createDoughnutChart('chartOz', '🥛 Onzas', previous.ounces, current.ounces, labels);
+  createDoughnutChart('chartDiaper', '👶 Pañales', previous.diapers, current.diapers, labels);
+  createDoughnutChart('chartSleep', '😴 Horas', previous.sleep / 60, current.sleep / 60, labels);
 };
 
 const renderMonthlyHistory = () => {
   const container = document.getElementById('monthlyHistoryContent');
   if (!container) return;
   
+  const now = new Date();
+  const start = currentMonthStart(now);
+  const end = now.getTime() + 1;
+  const isCurrentMonth = (ts) => withinPeriod(ts, start, end);
   const monthBreast = state.breast.filter(r => isCurrentMonth(r.ts));
   const monthMix = state.mix.filter(r => isCurrentMonth(r.ts));
   const monthPump = state.pump.filter(r => isCurrentMonth(r.ts));
   const monthDiaper = state.diaper.filter(r => isCurrentMonth(r.ts));
-  const monthSleep = state.sleep.filter(r => isCurrentMonth(r.ts || r.start));
+  const monthSleep = state.sleep.filter(r => sleepMinutesInPeriod(r, start, end) > 0);
   
   let html = '';
   
@@ -960,22 +922,79 @@ const renderMonthlyHistory = () => {
     sorted.forEach(r => {
       const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
       const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('diaper', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('diaper', '${r.id}')">🗑</button></div>`;
-      html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — ${r.type}</span>${actions}</div>`;
+      html += `<div class="record-item"><span>${icon} ${formatDateTime(r.ts)} — ${r.type}${r.weightGrams ? ` · ${Number(r.weightGrams)} g` : ''}</span>${actions}</div>`;
     });
   } else if (currentHistoryTab === 'sleep') {
     const sorted = [...monthSleep].sort((a, b) => new Date(b.ts || b.start) - new Date(a.ts || a.start));
-    const totalHours = sorted.reduce((s, r) => s + (r.min || 0), 0) / 60;
+    const totalHours = sorted.reduce((sum, r) => sum + sleepMinutesInPeriod(r, start, end), 0) / 60;
     html = `<div class="muted mb-2">Total: ${totalHours.toFixed(1)} horas (${sorted.length} registros)</div>`;
     sorted.forEach(r => {
-      const hours = Math.floor(r.min / 60);
-      const mins = r.min % 60;
-      const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
+      const duration = formatDuration(sleepMinutesInPeriod(r, start, end));
       const actions = `<div class="record-actions"><button class="btn-edit" onclick="editRecord('sleep', '${r.id}')">✏️</button><button class="btn-danger" onclick="delRecord('sleep', '${r.id}')">🗑</button></div>`;
       html += `<div class="record-item"><span>😴 ${formatDateTime(r.ts || r.start)} — ${duration}</span>${actions}</div>`;
     });
   }
   
   container.innerHTML = html || '<p class="muted text-center">No hay registros este mes</p>';
+};
+
+const renderDailyHistory = (searchDate) => {
+  const card = document.getElementById('historyResultsCard');
+  const date = searchDate || card.dataset.date;
+  if (!date) return;
+
+  const dateStart = new Date(date + 'T00:00:00');
+  const dateEnd = new Date(dateStart);
+  dateEnd.setDate(dateEnd.getDate() + 1);
+  const results = [];
+  for (const category of ['breast', 'mix', 'pump', 'diaper', 'growth', 'sleep']) {
+    for (const record of state[category]) {
+      if (category === 'sleep') {
+        const minutes = sleepMinutesInPeriod(record, dateStart, dateEnd);
+        if (minutes > 0) {
+          const ts = Math.max(new Date(record.start || record.ts), dateStart);
+          results.push({ ...record, category, ts, minutes });
+        }
+      } else if (withinPeriod(record.ts, dateStart, dateEnd)) {
+        results.push({ ...record, category });
+      }
+    }
+  }
+
+  results.sort((a, b) => new Date(b.ts || b.start) - new Date(a.ts || a.start));
+
+  const title = document.getElementById('historyDateTitle');
+  const container = document.getElementById('historyResults');
+
+  const formattedDate = dateStart.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  title.textContent = `Registros del ${formattedDate}`;
+
+  if (results.length === 0) {
+    container.innerHTML = '<p class="muted text-center">No hay registros para esta fecha</p>';
+  } else {
+    let html = '';
+    results.forEach(r => {
+      if (r.category === 'breast') {
+        html += `<div class="record-item"><span>🍼 ${formatTime(r.ts)} — Pecho</span></div>`;
+      } else if (r.category === 'mix') {
+        html += `<div class="record-item"><span>🥛 ${formatTime(r.ts)} — Mixta: ${r.lm}oz + ${r.lf}oz</span></div>`;
+      } else if (r.category === 'pump') {
+        html += `<div class="record-item"><span>💧 ${formatTime(r.ts)} — Extracción: ${r.l}oz + ${r.r}oz</span></div>`;
+      } else if (r.category === 'diaper') {
+        const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
+        html += `<div class="record-item"><span>${icon} ${formatTime(r.ts)} — Pañal ${r.type}${r.weightGrams ? ` · ${Number(r.weightGrams)} g` : ''}</span></div>`;
+      } else if (r.category === 'sleep') {
+        const duration = formatDuration(r.minutes);
+        html += `<div class="record-item"><span>😴 ${formatTime(r.ts)} — Sueño: ${duration}</span></div>`;
+      } else if (r.category === 'growth') {
+        html += `<div class="record-item"><span>📏 ${formatTime(r.ts)} — ${r.w}kg, ${r.h}cm</span></div>`;
+      }
+    });
+    container.innerHTML = html;
+  }
+
+  card.dataset.date = date;
+  card.style.display = 'block';
 };
 
 // ============================================
@@ -1362,67 +1381,10 @@ document.addEventListener('DOMContentLoaded', () => {
     renderGrowthHistory();
   });
 
-  // Historial: Búsqueda por fecha
   document.getElementById('searchHistory')?.addEventListener('click', () => {
-    const searchDate = document.getElementById('historyDate').value;
-    if (!searchDate) {
-      alert('Selecciona una fecha');
-      return;
-    }
-    
-    const dateStart = new Date(searchDate + 'T00:00:00');
-    const dateEnd = new Date(searchDate + 'T23:59:59');
-    
-    const isSameDay = (ts) => {
-      const d = new Date(ts);
-      return d >= dateStart && d <= dateEnd;
-    };
-    
-    const results = [];
-    
-    state.breast.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'breast' }));
-    state.mix.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'mix' }));
-    state.pump.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'pump' }));
-    state.diaper.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'diaper' }));
-    state.sleep.filter(r => isSameDay(r.ts || r.start)).forEach(r => results.push({ ...r, type: 'sleep' }));
-    state.growth.filter(r => isSameDay(r.ts)).forEach(r => results.push({ ...r, type: 'growth' }));
-    
-    results.sort((a, b) => new Date(b.ts || b.start) - new Date(a.ts || a.start));
-    
-    const card = document.getElementById('historyResultsCard');
-    const title = document.getElementById('historyDateTitle');
-    const container = document.getElementById('historyResults');
-    
-    const formattedDate = new Date(searchDate).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
-    title.textContent = `Registros del ${formattedDate}`;
-    
-    if (results.length === 0) {
-      container.innerHTML = '<p class="muted text-center">No hay registros para esta fecha</p>';
-    } else {
-      let html = '';
-      results.forEach(r => {
-        if (r.type === 'breast') {
-          html += `<div class="record-item"><span>🍼 ${formatTime(r.ts)} — Pecho</span></div>`;
-        } else if (r.type === 'mix') {
-          html += `<div class="record-item"><span>🥛 ${formatTime(r.ts)} — Mixta: ${r.lm}oz + ${r.lf}oz</span></div>`;
-        } else if (r.type === 'pump') {
-          html += `<div class="record-item"><span>💧 ${formatTime(r.ts)} — Extracción: ${r.l}oz + ${r.r}oz</span></div>`;
-        } else if (r.type === 'diaper') {
-          const icon = r.type === 'pipi' ? '💧' : r.type === 'caca' ? '💩' : '💧💩';
-          html += `<div class="record-item"><span>${icon} ${formatTime(r.ts)} — Pañal ${r.type}</span></div>`;
-        } else if (r.type === 'sleep') {
-          const hours = Math.floor(r.min / 60);
-          const mins = r.min % 60;
-          const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`;
-          html += `<div class="record-item"><span>😴 ${formatTime(r.ts)} — Sueño: ${duration}</span></div>`;
-        } else if (r.type === 'growth') {
-          html += `<div class="record-item"><span>📏 ${formatTime(r.ts)} — ${r.w}kg, ${r.h}cm</span></div>`;
-        }
-      });
-      container.innerHTML = html;
-    }
-    
-    card.style.display = 'block';
+    const date = document.getElementById('historyDate').value;
+    if (date) renderDailyHistory(date);
+    else alert('Selecciona una fecha');
   });
 
   // Save edit button
