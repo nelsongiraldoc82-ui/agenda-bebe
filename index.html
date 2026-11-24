@@ -123,6 +123,7 @@
       padding: 6px 12px; background: none; border: 0; cursor: pointer; 
       color: var(--muted); font-size: 10px; transition: color 0.2s;
     }
+    .app-container.needs-profile [data-view] { display: none; }
     .nav-btn.active { color: var(--btn); }
     .nav-btn svg { width: 22px; height: 22px; }
     
@@ -550,33 +551,33 @@
     <footer style="text-align: center; padding: 20px 0; color: var(--muted); font-size: 12px;">
       Creado por Javi Design
     </footer>
-  </div>
 
-  <!-- Bottom Navigation (Mobile) -->
-  <nav class="bottom-nav" id="bottomNav" style="display: none;">
-    <div class="bottom-nav-inner">
-      <button class="nav-btn active" data-view="home">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L4 9v12h5v-7h6v7h5V9l-8-6z"/></svg>
-        <span>Inicio</span>
-      </button>
-      <button class="nav-btn" data-view="feeding">
-        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
-        <span>Comer</span>
-      </button>
-      <button class="nav-btn" data-view="diapers">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 4-3 8-4 11H8c-1-3-4-7-4-11z"/></svg>
-        <span>Pañal</span>
-      </button>
-      <button class="nav-btn" data-view="sleep">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-5 0-9 4-9 9s4 9 9 9c1 0 2-.7 2-1.5 0-.4-.2-.8-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H17c3 0 5-2 5-5 0-4-4-8-10-8z"/></svg>
-        <span>Dormir</span>
-      </button>
-      <button class="nav-btn" data-view="growth">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21V8l4-4 6 6 4-4 4 4v11H3z"/></svg>
-        <span>Crecer</span>
-      </button>
-    </div>
-  </nav>
+    <!-- Bottom Navigation (Mobile) -->
+    <nav class="bottom-nav" id="bottomNav" hidden>
+      <div class="bottom-nav-inner">
+        <button class="nav-btn active" data-view="home">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3L4 9v12h5v-7h6v7h5V9l-8-6z"/></svg>
+          <span>Inicio</span>
+        </button>
+        <button class="nav-btn" data-view="feeding">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+          <span>Comer</span>
+        </button>
+        <button class="nav-btn" data-view="diapers">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8c0-3 3-5 8-5s8 2 8 5c0 4-3 8-4 11H8c-1-3-4-7-4-11z"/></svg>
+          <span>Pañal</span>
+        </button>
+        <button class="nav-btn" data-view="sleep">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-5 0-9 4-9 9s4 9 9 9c1 0 2-.7 2-1.5 0-.4-.2-.8-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H17c3 0 5-2 5-5 0-4-4-8-10-8z"/></svg>
+          <span>Dormir</span>
+        </button>
+        <button class="nav-btn" data-view="growth">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 21V8l4-4 6 6 4-4 4 4v11H3z"/></svg>
+          <span>Crecer</span>
+        </button>
+      </div>
+    </nav>
+  </div>
 
   <!-- Auth Container -->
   <div class="auth-container" id="authContainer" style="display: none;">

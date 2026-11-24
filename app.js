@@ -548,17 +548,12 @@ window.closeEditModal = closeEditModal;
 const updateUI = () => {
   if (state.profile) {
     showView('home');
-    const bottomNav = document.getElementById('bottomNav');
-    if (bottomNav) bottomNav.style.display = 'block';
-    renderHome();
     renderRecentFeeding();
     renderRecentDiapers();
     renderRecentSleep();
     renderGrowthHistory();
   } else {
     showView('profile');
-    const bottomNav = document.getElementById('bottomNav');
-    if (bottomNav) bottomNav.style.display = 'none';
   }
 };
 
@@ -1001,12 +996,21 @@ const renderDailyHistory = (searchDate) => {
 // NAVIGATION
 // ============================================
 const showView = (view) => {
+  if (!state.profile) view = 'profile';
+  document.getElementById('appContainer').classList.toggle('needs-profile', !state.profile);
+  document.getElementById('bottomNav').hidden = view === 'profile';
+  if (view === 'profile') document.getElementById('babyBirth').max = localDateInput();
+
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const viewEl = document.getElementById(view + 'View');
   if (viewEl) viewEl.classList.add('active');
   
-  document.querySelectorAll('.nav-btn, .nav-item').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll(`[data-view="${view}"]`).forEach(b => b.classList.add('active'));
+  document.querySelectorAll('[data-view]').forEach(link => {
+    const active = link.dataset.view === view;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
   
   const panel = document.getElementById('panel');
   const overlay = document.getElementById('overlay');
@@ -1028,8 +1032,30 @@ window.editProfile = () => {
     document.getElementById('babyBirth').value = state.profile.birth || '';
   }
   showView('profile');
-  const bottomNav = document.getElementById('bottomNav');
-  if (bottomNav) bottomNav.style.display = 'none';
+};
+
+// Elimina los datos mostrados y los borradores al cerrar la sesión o borrar los registros.
+const resetProfileForm = () => {
+  closeEditModal();
+  showView('profile');
+
+  const now = new Date();
+  const today = localDateInput(now);
+  const time = now.toTimeString().slice(0, 5);
+  document.querySelectorAll('#appContainer input').forEach(input => {
+    if (input.type === 'time') input.value = time;
+    else if (['sleepDate', 'sleepDateEnd', 'growthDate'].includes(input.id)) input.value = today;
+    else input.value = input.defaultValue;
+  });
+  document.querySelectorAll('#appContainer select').forEach(select => { select.selectedIndex = 0; });
+
+  const lists = ['homeView', 'recentFeeding', 'recentDiapers', 'recentSleep', 'growthHistory',
+    'monthlyHistoryContent', 'historyResults', 'editModalContent'];
+  lists.forEach(id => document.getElementById(id).replaceChildren());
+  document.getElementById('historyResultsCard').style.display = 'none';
+  document.getElementById('historyDateTitle').textContent = 'Registros del día';
+  Object.values(chartInstances).forEach(chart => chart.destroy());
+  chartInstances = {};
 };
 
 // Helper para obtener fecha/hora
@@ -1250,15 +1276,18 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
-    state.profile = { name, sex, birth };
-    showSync(true);
-    try {
-      await db.collection('users').doc(currentUser.uid).collection('profile').doc('baby').set(state.profile);
-      showSync(false);
+    if (birth > localDateInput()) {
+      alert('La fecha de nacimiento no puede ser futura');
+      return;
+    }
+
+    const profile = { name, sex, birth };
+    const saved = await writeUserData('guardar el perfil', ref =>
+      ref.collection('profile').doc('baby').set(profile)
+    );
+    if (saved) {
+      state.profile = profile;
       updateUI();
-    } catch (e) {
-      showError('Error al guardar perfil: ' + e.message);
-      showSync(false);
     }
   });
 
