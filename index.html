@@ -19,13 +19,22 @@
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
   
+  <script>
+    const updateConnectionNotice = () => {
+      document.documentElement.toggleAttribute('data-offline', !navigator.onLine);
+    };
+    updateConnectionNotice();
+    window.addEventListener('online', updateConnectionNotice);
+    window.addEventListener('offline', updateConnectionNotice);
+  </script>
+
   <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="vendor/firebase-10.7.1/firebase-app-compat.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
+  <script src="vendor/firebase-10.7.1/firebase-auth-compat.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
+  <script src="vendor/firebase-10.7.1/firebase-firestore-compat.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
   
   <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="vendor/chart.js-4.6.2/chart.umd.min.js"></script>
   
   <style>
     :root {
@@ -165,6 +174,10 @@
     /* Loading */
     .loading { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .spinner { width: 40px; height: 40px; border: 4px solid var(--borde); border-top-color: var(--btn); border-radius: 50%; animation: spin 1s linear infinite; }
+    .startup-error, .offline-login { display: none; }
+    .startup-failed .loading .spinner { display: none; }
+    .startup-failed .startup-error { display: block; margin: 16px; }
+    [data-offline] .offline-login { display: block; }
     @keyframes spin { to { transform: rotate(360deg); } }
     
     /* Tabs */
@@ -219,6 +232,11 @@
   <!-- Loading Screen -->
   <div class="loading" id="loadingScreen">
     <div class="spinner"></div>
+    <section class="card startup-error" role="alert">
+      <h2>No se pudo abrir la agenda</h2>
+      <p>Comprueba tu conexión y vuelve a intentarlo.</p>
+      <button type="button" class="btn mt-2" onclick="location.reload()">Reintentar</button>
+    </section>
   </div>
 
   <!-- Sync Indicator -->
@@ -592,6 +610,7 @@
   <!-- Auth Container -->
   <div class="auth-container" id="authContainer" style="display: none;">
     <div class="auth-logo">👶</div>
+    <p class="card offline-login" role="status">Sin conexión. Conéctate para acceder a tu cuenta.</p>
     
     <!-- Login Form -->
     <div id="loginForm">
@@ -651,7 +670,7 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js" onerror="document.documentElement.classList.add('startup-failed')"></script>
   
   <!-- Edit Modal -->
   <div class="modal-overlay" id="editModal">
